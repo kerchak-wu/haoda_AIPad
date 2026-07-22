@@ -233,17 +233,42 @@ def main():
         paused_pos = 0.0
         playing = False
 
-    # 按钮位置（底部控制栏）
+    # 音量控制（0-100）
+    volume = 70
+
+    def set_volume(v):
+        nonlocal volume
+        volume = max(0, min(100, int(v)))
+        if audio_ok:
+            pygame.mixer.music.set_volume(volume / 100.0)
+
+    def volume_up():
+        set_volume(volume + 10)
+
+    def volume_down():
+        set_volume(volume - 10)
+
+    # 初始化音量
+    set_volume(volume)
+
+    # 按钮位置（底部控制栏）：播放控制组 + 音量控制组
     btn_y = HEIGHT - 130
-    btn_w, btn_h = 180, 80
-    gap = 40
-    total_w = btn_w * 4 + gap * 3
+    btn_w, btn_h = 170, 80
+    gap = 36
+    sep_gap = 90  # 两组之间的分隔间距
+    group1_w = btn_w * 4 + gap * 3
+    group2_w = btn_w * 2 + gap
+    total_w = group1_w + sep_gap + group2_w
     start_x = (WIDTH - total_w) // 2
 
     btn_prev = Button((start_x, btn_y, btn_w, btn_h), "上一首", prev_track, font_btn)
     btn_play = Button((start_x + (btn_w + gap), btn_y, btn_w, btn_h), "播放", toggle_play, font_btn)
     btn_next = Button((start_x + (btn_w + gap) * 2, btn_y, btn_w, btn_h), "下一首", next_track, font_btn)
     btn_stop = Button((start_x + (btn_w + gap) * 3, btn_y, btn_w, btn_h), "停止", stop_track, font_btn)
+
+    vol_group_x = start_x + group1_w + sep_gap
+    btn_vol_down = Button((vol_group_x, btn_y, btn_w, btn_h), "音量 -", volume_down, font_btn)
+    btn_vol_up = Button((vol_group_x + (btn_w + gap), btn_y, btn_w, btn_h), "音量 +", volume_up, font_btn)
 
     # 退出按钮（右上角）
     exit_btn = Button(
@@ -253,7 +278,7 @@ def main():
         text_color=WHITE,
     )
 
-    buttons = [btn_prev, btn_play, btn_next, btn_stop, exit_btn]
+    buttons = [btn_prev, btn_play, btn_next, btn_stop, btn_vol_down, btn_vol_up, exit_btn]
 
     # ---------- 布局常量（自上而下） ----------
     # 标题      y=80
@@ -262,7 +287,7 @@ def main():
     list_title_y = 250
     list_top = 320                 # 列表面板顶部（下移，避免与大标题重叠）
     # 时间轴在播放列表下方、功能键上方
-    progress_bar_y = btn_y - 95    # 进度条 y
+    progress_bar_y = btn_y - 140   # 进度条 y（上移，为音量显示留出空间）
     time_text_y = progress_bar_y + 22
     list_bottom = progress_bar_y - 30   # 列表面板底部，留出与进度条的间距
     line_h = 48
@@ -308,6 +333,10 @@ def main():
                     next_track()
                 elif event.key == pygame.K_LEFT:
                     prev_track()
+                elif event.key == pygame.K_UP:
+                    volume_up()
+                elif event.key == pygame.K_DOWN:
+                    volume_down()
 
         # ----- 绘制背景 -----
         if background:
@@ -375,6 +404,27 @@ def main():
                                      progress_bar_rect.height)
             pygame.draw.rect(screen, ACCENT, fill_rect, border_radius=7)
 
+        # ----- 音量显示（进度条下方、功能键上方） -----
+        vol_bar_w = 360
+        vol_bar_h = 16
+        vol_bar_x = (WIDTH - vol_bar_w) // 2
+        vol_bar_y = btn_y - 52
+        vol_cy = vol_bar_y + vol_bar_h // 2
+        vol_bar_rect = pygame.Rect(vol_bar_x, vol_bar_y, vol_bar_w, vol_bar_h)
+        # 左侧「音量」标签
+        draw_text(screen, "音量", font_small, (200, 200, 200),
+                  (vol_bar_rect.x - 16, vol_cy), anchor="midright")
+        # 音量条背景
+        pygame.draw.rect(screen, (255, 255, 255, 60), vol_bar_rect, border_radius=8)
+        # 音量条填充
+        vol_fill_w = int(vol_bar_w * (volume / 100.0))
+        if vol_fill_w > 0:
+            vol_fill = pygame.Rect(vol_bar_x, vol_bar_y, vol_fill_w, vol_bar_h)
+            pygame.draw.rect(screen, ACCENT, vol_fill, border_radius=8)
+        # 右侧百分比
+        draw_text(screen, f"{volume}%", font_small, TEXT_COLOR,
+                  (vol_bar_rect.right + 16, vol_cy), anchor="midleft")
+
         # ----- 按钮 -----
         # 更新播放按钮文本
         btn_play.text = "暂停" if playing else "播放"
@@ -383,7 +433,7 @@ def main():
             b.draw(screen)
 
         # ----- 提示信息 -----
-        hint = "快捷键：空格 播放/暂停 | ← → 切换曲目 | ESC 退出"
+        hint = "快捷键：空格 播放/暂停 | ← → 切换曲目 | ↑ ↓ 调节音量 | ESC 退出"
         draw_text(screen, hint, font_small, (200, 200, 200),
                   (WIDTH // 2, HEIGHT - 30), anchor="center")
 
