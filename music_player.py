@@ -258,14 +258,14 @@ def main():
     # ---------- 布局常量（自上而下） ----------
     # 标题      y=80
     # 当前曲目  y=180
-    # 播放列表大标题 y=250 (font_list_title 50pt)
+    # 播放列表大标题 y=250 (font_list_title 50pt)，下边缘约 y=295
     list_title_y = 250
-    list_top = 300                 # 列表面板顶部
+    list_top = 320                 # 列表面板顶部（下移，避免与大标题重叠）
     # 时间轴在播放列表下方、功能键上方
     progress_bar_y = btn_y - 95    # 进度条 y
     time_text_y = progress_bar_y + 22
     list_bottom = progress_bar_y - 30   # 列表面板底部，留出与进度条的间距
-    line_h = 50
+    line_h = 48
     max_visible = (list_bottom - list_top) // line_h
 
     # 进度条矩形（每帧重绘时也用同一位置）
