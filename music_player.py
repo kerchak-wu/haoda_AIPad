@@ -186,6 +186,8 @@ def main():
         idx = idx % len(music_files)
         current_idx = idx
         path = os.path.join(MUSIC_DIR, music_files[idx])
+        # 立即停止当前播放，避免切换时旧曲目继续发声
+        pygame.mixer.music.stop()
         try:
             # 用 Sound 预读取时长（pygame.mixer.music 没有 get_length）
             try:
