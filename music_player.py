@@ -5,6 +5,9 @@
 - 播放 recordings 文件夹下的音乐文件
 - 背景使用 images/1.jpg
 - 提供退出程序按钮
+
+布局（自上而下）：
+  标题 -> 当前曲目 -> 「播放列表」大标题 -> 播放列表面板 -> 时间轴/进度条 -> 功能键 -> 快捷键提示
 """
 
 import os
@@ -140,6 +143,7 @@ def main():
     # 字体
     font_name = find_chinese_font()
     font_title = pygame.font.SysFont(font_name, 64, bold=True)
+    font_list_title = pygame.font.SysFont(font_name, 50, bold=True)   # 播放列表大标题
     font_song = pygame.font.SysFont(font_name, 40)
     font_btn = pygame.font.SysFont(font_name, 34)
     font_small = pygame.font.SysFont(font_name, 26)
@@ -159,25 +163,47 @@ def main():
     music_files = load_music_list()
     current_idx = 0
     playing = False
+    # 位置跟踪状态（手动计时，避免依赖 get_pos/get_length 的兼容性问题）
+    current_length = 0.0      # 当前曲目总时长（秒）
+    play_start_tick = 0       # 上次 play/unpause 时的 pygame 时钟刻度
+    paused_pos = 0.0          # 暂停前已累计的播放位置（秒）
 
-    # 播放控制
+    def get_position():
+        """返回当前播放位置（秒）"""
+        if playing:
+            elapsed = (pygame.time.get_ticks() - play_start_tick) / 1000.0
+            pos = paused_pos + elapsed
+        else:
+            pos = paused_pos
+        if current_length > 0:
+            pos = min(pos, current_length)
+        return max(0.0, pos)
+
     def play_index(idx):
-        nonlocal current_idx, playing
+        nonlocal current_idx, playing, current_length, play_start_tick, paused_pos
         if not music_files or not audio_ok:
             return
         idx = idx % len(music_files)
         current_idx = idx
         path = os.path.join(MUSIC_DIR, music_files[idx])
         try:
+            # 用 Sound 预读取时长（pygame.mixer.music 没有 get_length）
+            try:
+                snd = pygame.mixer.Sound(path)
+                current_length = snd.get_length()
+            except Exception:
+                current_length = 0.0
             pygame.mixer.music.load(path)
             pygame.mixer.music.play()
+            play_start_tick = pygame.time.get_ticks()
+            paused_pos = 0.0
             playing = True
         except Exception as e:
             print(f"播放失败: {e}")
             playing = False
 
     def toggle_play():
-        nonlocal playing
+        nonlocal playing, play_start_tick, paused_pos
         if not music_files or not audio_ok:
             return
         if not pygame.mixer.music.get_busy() and not playing:
@@ -185,9 +211,11 @@ def main():
             return
         if playing:
             pygame.mixer.music.pause()
+            paused_pos = get_position()
             playing = False
         else:
             pygame.mixer.music.unpause()
+            play_start_tick = pygame.time.get_ticks()
             playing = True
 
     def next_track():
@@ -199,9 +227,10 @@ def main():
             play_index(current_idx - 1)
 
     def stop_track():
-        nonlocal playing
+        nonlocal playing, paused_pos
         if audio_ok:
             pygame.mixer.music.stop()
+        paused_pos = 0.0
         playing = False
 
     # 按钮位置（底部控制栏）
@@ -226,11 +255,21 @@ def main():
 
     buttons = [btn_prev, btn_play, btn_next, btn_stop, exit_btn]
 
-    # 播放列表显示范围
-    list_top = 280
-    list_bottom = btn_y - 40
+    # ---------- 布局常量（自上而下） ----------
+    # 标题      y=80
+    # 当前曲目  y=180
+    # 播放列表大标题 y=250 (font_list_title 50pt)
+    list_title_y = 250
+    list_top = 300                 # 列表面板顶部
+    # 时间轴在播放列表下方、功能键上方
+    progress_bar_y = btn_y - 95    # 进度条 y
+    time_text_y = progress_bar_y + 22
+    list_bottom = progress_bar_y - 30   # 列表面板底部，留出与进度条的间距
     line_h = 50
     max_visible = (list_bottom - list_top) // line_h
+
+    # 进度条矩形（每帧重绘时也用同一位置）
+    progress_bar_rect = pygame.Rect(160, progress_bar_y, WIDTH - 320, 14)
 
     # 进度条拖动状态
     dragging_progress = False
@@ -238,21 +277,21 @@ def main():
     running = True
     while running:
         mouse_pos = pygame.mouse.get_pos()
-        mouse_click = False
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mouse_click = True
                 # 检查进度条点击
                 if progress_bar_rect.collidepoint(event.pos):
-                    if music_files and audio_ok:
+                    if music_files and audio_ok and current_length > 0:
                         ratio = (event.pos[0] - progress_bar_rect.x) / progress_bar_rect.width
                         ratio = max(0, min(1, ratio))
-                        if pygame.mixer.music.get_length() > 0:
-                            pygame.mixer.music.play(start=ratio * pygame.mixer.music.get_length())
-                            playing = True
+                        target = ratio * current_length
+                        pygame.mixer.music.play(start=target)
+                        play_start_tick = pygame.time.get_ticks()
+                        paused_pos = target
+                        playing = True
                         dragging_progress = True
                 else:
                     for b in buttons:
@@ -297,34 +336,14 @@ def main():
                 draw_text(screen, "（音频模块初始化失败，无法播放声音）",
                           font_small, (255, 150, 150), (WIDTH // 2, 230), anchor="center")
 
-        # ----- 进度条 -----
-        progress_bar_rect = pygame.Rect(160, 240, WIDTH - 320, 14)
-        pygame.draw.rect(screen, (255, 255, 255, 60), progress_bar_rect, border_radius=7)
+        # ----- 播放列表大标题 -----
+        draw_text(screen, "播放列表", font_list_title, ACCENT,
+                  (WIDTH // 2, list_title_y), anchor="midtop")
 
-        progress_ratio = 0
-        if music_files and audio_ok:
-            length = pygame.mixer.music.get_length()
-            pos = pygame.mixer.music.get_pos() / 1000.0
-            if length > 0 and pos >= 0:
-                progress_ratio = min(1, pos / length)
-                # 时间文字
-                draw_text(screen, format_time(pos), font_small, TEXT_COLOR,
-                          (progress_bar_rect.x, 250), anchor="topleft")
-                draw_text(screen, format_time(length), font_small, TEXT_COLOR,
-                          (progress_bar_rect.right, 250), anchor="topright")
-
-        if progress_ratio > 0:
-            fill_rect = pygame.Rect(progress_bar_rect.x, progress_bar_rect.y,
-                                    int(progress_bar_rect.width * progress_ratio),
-                                    progress_bar_rect.height)
-            pygame.draw.rect(screen, ACCENT, fill_rect, border_radius=7)
-
-        # ----- 播放列表 -----
+        # ----- 播放列表面板 -----
         list_panel = pygame.Surface((WIDTH - 320, list_bottom - list_top), pygame.SRCALPHA)
         list_panel.fill((0, 0, 0, 120))
         screen.blit(list_panel, (160, list_top))
-
-        draw_text(screen, "播放列表", font_btn, ACCENT, (180, list_top - 50), anchor="topleft")
 
         if music_files:
             for i in range(min(max_visible, len(music_files))):
@@ -336,6 +355,25 @@ def main():
         else:
             draw_text(screen, "（列表为空）", font_small, (200, 200, 200),
                       (WIDTH // 2, list_top + 20), anchor="center")
+
+        # ----- 时间轴 / 进度条（播放列表下方、功能键上方） -----
+        pygame.draw.rect(screen, (255, 255, 255, 60), progress_bar_rect, border_radius=7)
+
+        progress_ratio = 0
+        if music_files and audio_ok and current_length > 0:
+            pos = get_position()
+            progress_ratio = min(1, pos / current_length)
+            # 时间文字（左侧已播、右侧总时长）
+            draw_text(screen, format_time(pos), font_small, TEXT_COLOR,
+                      (progress_bar_rect.x, time_text_y), anchor="topleft")
+            draw_text(screen, format_time(current_length), font_small, TEXT_COLOR,
+                      (progress_bar_rect.right, time_text_y), anchor="topright")
+
+        if progress_ratio > 0:
+            fill_rect = pygame.Rect(progress_bar_rect.x, progress_bar_rect.y,
+                                     int(progress_bar_rect.width * progress_ratio),
+                                     progress_bar_rect.height)
+            pygame.draw.rect(screen, ACCENT, fill_rect, border_radius=7)
 
         # ----- 按钮 -----
         # 更新播放按钮文本
