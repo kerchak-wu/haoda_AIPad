@@ -358,14 +358,14 @@ def main():
         if music_files:
             name = os.path.splitext(music_files[current_idx])[0]
             draw_text(screen, f"正在播放：{name}", font_song, ACCENT,
-                      (WIDTH // 2, 180), anchor="center")
+                      (WIDTH // 2, 220), anchor="center")
         else:
             msg = f"未找到音乐文件，请将音乐放入 {MUSIC_DIR}/ 文件夹"
             draw_text(screen, msg, font_song, (255, 200, 120),
-                      (WIDTH // 2, 180), anchor="center")
+                      (WIDTH // 2, 220), anchor="center")
             if not audio_ok:
                 draw_text(screen, "（音频模块初始化失败，无法播放声音）",
-                          font_small, (255, 150, 150), (WIDTH // 2, 230), anchor="center")
+                          font_small, (255, 150, 150), (WIDTH // 2, 270), anchor="center")
 
         # ----- 播放列表大标题 -----
         draw_text(screen, "播放列表", font_list_title, ACCENT,
