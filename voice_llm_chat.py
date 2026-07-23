@@ -151,7 +151,7 @@ def main():
     font_status = pygame.font.SysFont(font_name, 44)
     font_role = pygame.font.SysFont(font_name, 36, bold=True)
     font_msg = pygame.font.SysFont(font_name, 34)
-    font_btn = pygame.font.SysFont(font_name, 40, bold=True)
+    font_btn = pygame.font.SysFont(font_name, 26, bold=True)
     font_exit = pygame.font.SysFont(font_name, 30, bold=True)
     font_small = pygame.font.SysFont(font_name, 26)
 
@@ -245,8 +245,8 @@ def main():
         set_state(STATE_IDLE)
 
     # 录音按钮（大圆形，按住说话）
-    record_btn_rect = pygame.Rect(0, 0, 280, 280)
-    record_btn_rect.center = (WIDTH // 2, HEIGHT - 260)
+    record_btn_rect = pygame.Rect(0, 0, 140, 140)
+    record_btn_rect.center = (WIDTH // 2, HEIGHT - 90)
 
     # 退出按钮（右上角）
     exit_btn = Button(
@@ -255,6 +255,7 @@ def main():
     )
 
     recording = False
+    record_start_tick = 0
     processing_thread = None
 
     running = True
@@ -271,10 +272,11 @@ def main():
                 if exit_btn.rect.collidepoint(event.pos):
                     running = False
                     continue
-                # 按下圆形按钮 -> 开始录音
+                # 按下圆形按钮 -> 开始录音（ERROR 状态下点击视为重试）
                 if (record_btn_rect.collidepoint(event.pos)
-                        and get_state() == STATE_IDLE and not recording):
+                        and get_state() in (STATE_IDLE, STATE_ERROR) and not recording):
                     recording = True
+                    record_start_tick = pygame.time.get_ticks()
                     try:
                         recorder.start_recording(device=None)
                         set_state(STATE_RECORDING)
@@ -282,21 +284,23 @@ def main():
                         set_state(STATE_ERROR, f"录音启动失败: {e}")
                         recording = False
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                # 松开按钮 -> 结束录音并启动后续处理
+                # 松开按钮 -> 结束录音；若录音为空则结束本次对话，等待下次
                 if recording:
                     recording = False
+                    duration = (pygame.time.get_ticks() - record_start_tick) / 1000.0
                     try:
                         audio_data = recorder.stop_recording()
-                        if audio_data is not None:
+                        if audio_data is None or duration < 0.3:
+                            # 录音为空或时长过短，结束本次对话，回到空闲等待下次
+                            set_state(STATE_IDLE)
+                        else:
                             file_path = recorder.save_audio(audio_data, filename=RECORD_FILENAME)
                             if file_path:
                                 processing_thread = threading.Thread(
                                     target=process_conversation, daemon=True)
                                 processing_thread.start()
                             else:
-                                set_state(STATE_ERROR, "保存录音失败")
-                        else:
-                            set_state(STATE_ERROR, "录音为空")
+                                set_state(STATE_IDLE)
                     except Exception as e:
                         set_state(STATE_ERROR, f"录音结束异常: {e}")
 
@@ -330,13 +334,13 @@ def main():
         if cur_state == STATE_ERROR and error_msg:
             status_text = error_msg
         draw_text(screen, status_text, font_status, status_color,
-                  (WIDTH // 2, 175), anchor="center")
+                  (WIDTH // 2, 215), anchor="center")
 
         # ----- 对话记录面板 -----
         panel_x = 160
-        panel_y = 240
+        panel_y = 285
         panel_w = WIDTH - 320
-        panel_h = HEIGHT - 240 - 400
+        panel_h = HEIGHT - 285 - 220
         panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
         panel.fill(PANEL_COLOR)
         screen.blit(panel, (panel_x, panel_y))
@@ -391,6 +395,9 @@ def main():
                                (glow_surf.get_width() // 2, glow_surf.get_height() // 2),
                                btn_radius + 10 + pulse // 4)
             screen.blit(glow_surf, glow_surf.get_rect(center=btn_center))
+        elif cur_state == STATE_ERROR:
+            btn_color = BTN_RECORD_HOVER if hovering else BTN_RECORD
+            btn_label = ["点击重试"]
         elif cur_state == STATE_IDLE:
             btn_color = BTN_RECORD_HOVER if hovering else BTN_RECORD
             btn_label = ["按住说话"]
@@ -417,7 +424,7 @@ def main():
         else:
             hint = "请等待当前对话完成..."
         draw_text(screen, hint, font_small, (200, 200, 200),
-                  (WIDTH // 2, record_btn_rect.bottom + 50), anchor="center")
+                  (WIDTH // 2, record_btn_rect.top - 24), anchor="center")
 
         # ----- 退出按钮 -----
         exit_btn.update(mouse_pos)
