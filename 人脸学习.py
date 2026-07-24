@@ -560,7 +560,10 @@ def main():
             signal.signal(signal.SIGALRM, _alarm)
             signal.alarm(timeout)
         try:
-            cap = cv2.VideoCapture(cid)
+            # 直接用设备节点路径打开，避免把整数 cid 当成 V4L2 索引导致越界
+            # （系统设备列表通常只有 32 项，cid=41 会被判为索引越界）
+            device_path = "/dev/video{}".format(cid)
+            cap = cv2.VideoCapture(device_path)
             if cap is None or not cap.isOpened():
                 return None
             # 设置 MJPG 编码，解决 USB 摄像头默认格式导致的雪花/绿屏问题
