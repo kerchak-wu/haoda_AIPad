@@ -3,8 +3,8 @@
 
 ## 项目资料
 
-- [📄 好搭AI派编程手册.pdf](C__好搭Block_resources_AISeeKer.pdf) — 好搭AI派编程手册
-- [📄 好搭AI派范例代码.txt](好搭AI派范例代码.txt) — 好搭AI派范例代码
+- [📄 好搭AI派编程手册](C__好搭Block_resources_AISeeKer.pdf) — 好搭AI派编程手册
+- [📄 好搭AI派范例代码](好搭AI派范例代码.txt) — 好搭AI派范例代码
 - [📄 好搭AI派字体文件列表](好搭AI派字体文件名称列表.txt) — 自行上传字体文件
 
 ## 项目列表
