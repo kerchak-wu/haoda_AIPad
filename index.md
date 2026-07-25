@@ -1,3 +1,8 @@
+---
+layout: home
+title: 好搭AI派AIcodinig项目库
+---
+
 # haoda_AIPad
 好搭AI派项目 with Trae work 
 
