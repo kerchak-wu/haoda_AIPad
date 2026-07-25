@@ -5,7 +5,7 @@
 
 - <a href="C__好搭Block_resources_AISeeKer.pdf" download>📄 好搭AI派编程手册.pdf</a> — 好搭AI派编程手册
 - <a href="好搭AI派范例代码.txt" download>📄 好搭AI派范例代码.txt</a> — 好搭AI派范例代码
-- <a href="好搭AI派字体文件名称列表.txt" download>📄 好搭AI派字体文件名称列表.txt</a> — 好搭AI派字体文件列表
+- <a href="好搭AI派字体文件名称列表.txt" download>📄 好搭AI派字体文件列表</a>
 
 ## 项目列表
 
@@ -18,3 +18,4 @@
 | 5 | 音乐播放器 | [music_player.py](music_player.py) | <a href="音乐播放器项目说明文档.md" download>📄 项目文档</a> |
 | 6 | 红色文化交互展示 | [red_revolution_app.py](red_revolution_app.py) | <a href="红色文化交互展示项目说明文档.md" download>📄 项目文档</a> |
 | 7 | 语音大模型对话 | [voice_llm_chat.py](voice_llm_chat.py) | <a href="语音大模型对话项目说明文档.md" download>📄 项目文档</a> |
+| 8 | 字体展示程序 | [font_showcase.py](font_showcase.py) | <a href="字体展示项目说明文档.md" download>📄 项目文档</a> |
