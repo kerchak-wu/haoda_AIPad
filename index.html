@@ -5,7 +5,7 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>好搭AI派 · 项目展示</title>
-    <!-- 引入 Font Awesome 图标库 -->
+    <!-- Font Awesome 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
     </script>
@@ -56,8 +56,7 @@
     <header class="navbar">
         <div class="brand">
             <span class="logo-icon">📚</span>
-            好搭AI派AIcoding项目集
-            <!-- 已删除“·项目展示”灰色小字 -->
+            好搭AI派AIcoding项目展示
         </div>
         <div class="meta-info">
             <span class="dot"></span>
@@ -83,7 +82,6 @@
             </div>
         </div>
 
-        <!-- ===== 新底部 ===== -->
         <footer class="footer">
             <p>
                 <a href="mailto:65176556@qq.com" title="发送邮件">
@@ -128,7 +126,7 @@
 
             const detected = detectRepo();
             if (!detected) {
-                // 如果自动识别失败，您可以取消注释手动设置
+                // 如果自动识别失败，取消注释手动设置
                 // var REPO_OWNER = 'kerchak-wu';
                 // var REPO_NAME = 'haoda_AlPad';
                 document.addEventListener('DOMContentLoaded', function() {
@@ -188,7 +186,26 @@
                 return decoded;
             }
 
-            // ---------- 渲染 Markdown（含链接重写 + 下载属性） ----------
+            // ---------- 强制下载函数 ----------
+            async function downloadFile(url, filename) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error('下载失败');
+                    const blob = await response.blob();
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                } catch (err) {
+                    console.error('下载出错:', err);
+                    alert('下载失败，请稍后重试或右键另存为。');
+                }
+            }
+
+            // ---------- 渲染 Markdown（含链接重写 + 强制下载） ----------
             function renderMarkdown(markdown) {
                 marked.setOptions({
                     gfm: true,
@@ -201,19 +218,36 @@
                 const originalLink = renderer.link;
 
                 renderer.link = function(href, title, text) {
+                    // 外部链接或锚点保持原样
                     if (/^https?:\/\//i.test(href) || href.startsWith('#')) {
                         return originalLink.call(this, href, title, text);
                     }
+                    // 内部文件：生成 raw 链接，并添加 data-raw-url 和 data-filename 属性
                     const rawUrl =
                         `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${href}`;
                     const fileName = href.split('/').pop();
-                    return `<a href="${rawUrl}" target="_blank" rel="noopener noreferrer" download="${fileName}">${text}</a>`;
+                    // 添加 data 属性以便 JS 识别
+                    return `<a href="${rawUrl}" data-raw-url="${rawUrl}" data-filename="${fileName}" target="_blank">${text}</a>`;
                 };
 
                 let html = marked.parse(markdown, { renderer });
                 markdownEl.innerHTML = html;
 
                 enhanceRenderedContent();
+
+                // ---------- 绑定下载事件 ----------
+                // 选择所有带有 data-raw-url 的链接
+                const internalLinks = markdownEl.querySelectorAll('a[data-raw-url]');
+                internalLinks.forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault(); // 阻止默认跳转
+                        const url = this.getAttribute('data-raw-url');
+                        const filename = this.getAttribute('data-filename');
+                        downloadFile(url, filename);
+                    });
+                    // 移除 target="_blank" 以避免新窗口打开（但保留以防 JS 失效）
+                    // 但为了降级友好，我们保留，但通过 preventDefault 阻止了默认行为
+                });
             }
 
             function enhanceRenderedContent() {
