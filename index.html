@@ -5,6 +5,8 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>好搭AI派 · 项目展示</title>
+    <!-- 引入 Font Awesome 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
     </script>
     <style>
@@ -14,9 +16,8 @@
         a { color:#2d8c3c; text-decoration:none; }
         a:hover { color:#1a6b28; text-decoration:underline; }
         .navbar { background:#fff; border-bottom:3px solid #2d8c3c; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:100; }
-        .navbar .brand { display:flex; align-items:center; gap:10px; font-size:28px; /* ✅ 修改2：头部字号调大 */ font-weight:600; color:#2d8c3c; }
+        .navbar .brand { display:flex; align-items:center; gap:10px; font-size:28px; font-weight:600; color:#2d8c3c; }
         .navbar .brand .logo-icon { font-size:32px; }
-        .navbar .brand span { font-weight:300; color:#999; font-size:16px; margin-left:6px; }
         .navbar .meta-info { font-size:13px; color:#888; background:#f5f5f5; padding:4px 14px; border-radius:20px; display:flex; align-items:center; gap:6px; }
         .navbar .meta-info .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2d8c3c; animation:pulse-dot 1.8s ease-in-out infinite; }
         @keyframes pulse-dot { 0%,100%{ opacity:0.4; transform:scale(0.9); } 50%{ opacity:1; transform:scale(1.2); } }
@@ -27,24 +28,25 @@
         .error-box { text-align:center; padding:60px 20px; color:#c0392b; background:#fff5f5; border-radius:12px; border:1px solid #fdd; }
         .error-box .error-icon { font-size:48px; margin-bottom:12px; }
         .content-card { background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:40px 48px; }
-        .markdown-body { font-size:18px; /* ✅ 修改3：列表内容字号调大 */ color:#333; }
+        .markdown-body { font-size:18px; color:#333; }
         .markdown-body h1 { font-size:30px; font-weight:600; color:#2d8c3c; border-left:5px solid #2d8c3c; padding-left:18px; margin:0 0 24px 0; }
         .markdown-body h2 { font-size:24px; font-weight:500; color:#2d8c3c; margin:32px 0 16px 0; padding-bottom:8px; border-bottom:2px solid #eef5ee; }
         .markdown-body table { width:100%; border-collapse:collapse; margin:20px 0 24px 0; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.04); }
         .markdown-body table thead { background:#2d8c3c; color:#fff; }
-        .markdown-body table thead th { padding:12px 16px; text-align:left; font-weight:500; font-size:18px; /* ✅ 修改3：表头字号调大 */ }
+        .markdown-body table thead th { padding:12px 16px; text-align:left; font-weight:500; font-size:18px; }
         .markdown-body table tbody tr { border-bottom:1px solid #edf2ed; }
         .markdown-body table tbody tr:nth-child(even) { background:#f8fbf8; }
         .markdown-body table tbody tr:hover { background:#f0f6f0; }
-        .markdown-body table tbody td { padding:12px 16px; vertical-align:middle; font-size:18px; /* ✅ 修改3：单元格字号调大 */ }
+        .markdown-body table tbody td { padding:12px 16px; vertical-align:middle; font-size:18px; }
         .markdown-body table tbody td a { color:#2d8c3c; font-weight:500; }
         .markdown-body table tbody td .badge { display:inline-block; font-size:16px; background:#e8efe8; color:#2d8c3c; padding:0 10px; border-radius:12px; }
         .markdown-body .file-links { display:flex; flex-wrap:wrap; gap:12px 20px; margin:16px 0 20px 0; padding:16px 20px; background:#f9fbf9; border-radius:10px; border:1px solid #e8efe8; }
         .markdown-body .file-links a { display:inline-flex; align-items:center; gap:6px; font-size:17px; color:#2d8c3c; background:#fff; padding:4px 14px 4px 10px; border-radius:20px; border:1px solid #dce8dc; transition:all 0.2s; }
         .markdown-body .file-links a:hover { background:#2d8c3c; color:#fff; border-color:#2d8c3c; text-decoration:none; }
-        .footer { text-align:center; padding:28px 20px 20px; color:#aaa; font-size:13px; border-top:1px solid #edf2ed; margin-top:40px; }
-        .footer a { color:#2d8c3c; }
-        .footer .heart { color:#e74c3c; }
+        .footer { text-align:center; padding:28px 20px 20px; color:#555; font-size:15px; border-top:1px solid #edf2ed; margin-top:40px; }
+        .footer a { color:#2d8c3c; margin:0 8px; }
+        .footer a:hover { color:#1a6b28; }
+        .footer .icon { margin-right:4px; }
         @media (max-width:768px) { .navbar { padding:12px 16px; flex-direction:column; align-items:flex-start; } .content-card { padding:20px 16px; } .markdown-body table { display:block; overflow-x:auto; white-space:nowrap; } }
         @media (max-width:480px) { .navbar .brand { font-size:22px; } .markdown-body h1 { font-size:20px; } }
     </style>
@@ -54,8 +56,8 @@
     <header class="navbar">
         <div class="brand">
             <span class="logo-icon">📚</span>
-            好搭AI派AIcoding项目展示  <!-- ✅ 修改1：头部文字更改 -->
-            <span>· 项目展示</span>
+            好搭AI派AIcoding项目展示
+            <!-- 已删除“·项目展示”灰色小字 -->
         </div>
         <div class="meta-info">
             <span class="dot"></span>
@@ -81,14 +83,19 @@
             </div>
         </div>
 
+        <!-- ===== 新底部 ===== -->
         <footer class="footer">
             <p>
-                由 <a href="#" id="repo-link" target="_blank">GitHub 仓库</a>
-                自动生成 ·
-                <span class="heart">❤</span>  <!-- ✅ 修改4：删除“豆瓣风格”字样 -->
+                <a href="mailto:65176556@qq.com" title="发送邮件">
+                    <i class="fas fa-envelope icon"></i> 65176556@qq.com
+                </a>
+                <span style="color:#ccc;margin:0 6px;">·</span>
+                <a href="https://github.com/kerchak-wu" target="_blank" title="GitHub主页">
+                    <i class="fab fa-github icon"></i> @kerchak-wu
+                </a>
             </p>
-            <p style="margin-top:4px;font-size:12px;color:#ccc;">
-                内容随 README.md 实时更新 · 点击文件链接即可下载或查看
+            <p style="margin-top:8px;font-size:12px;color:#ccc;">
+                内容随 README.md 实时更新 · 点击文件链接即可下载
             </p>
         </footer>
     </div>
@@ -145,10 +152,6 @@
             const errorMsgEl = document.getElementById('error-msg');
             const contentEl = document.getElementById('content');
             const markdownEl = document.getElementById('markdown-content');
-            const repoLinkEl = document.getElementById('repo-link');
-
-            repoLinkEl.href = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
-            repoLinkEl.textContent = `${REPO_OWNER}/${REPO_NAME}`;
 
             // ---------- 获取 README ----------
             const API_URL =
@@ -198,14 +201,11 @@
                 const originalLink = renderer.link;
 
                 renderer.link = function(href, title, text) {
-                    // 外部链接或锚点不变
                     if (/^https?:\/\//i.test(href) || href.startsWith('#')) {
                         return originalLink.call(this, href, title, text);
                     }
-                    // 内部文件 → 转为 raw 链接，并添加 download 属性 ✅ 修改：强制下载
                     const rawUrl =
                         `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${href}`;
-                    // 提取文件名作为 download 值
                     const fileName = href.split('/').pop();
                     return `<a href="${rawUrl}" target="_blank" rel="noopener noreferrer" download="${fileName}">${text}</a>`;
                 };
@@ -213,7 +213,6 @@
                 let html = marked.parse(markdown, { renderer });
                 markdownEl.innerHTML = html;
 
-                // 增强：包装资料链接、表格序号等
                 enhanceRenderedContent();
             }
 
