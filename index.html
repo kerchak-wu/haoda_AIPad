@@ -5,16 +5,18 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>好搭AI派 · 项目展示</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
+    </script>
     <style>
-        /* 样式保留（略，您可用之前的样式） */
+        /* ===== 豆瓣风格样式 ===== */
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background:#f7f7f7; color:#333; line-height:1.7; }
         a { color:#2d8c3c; text-decoration:none; }
         a:hover { color:#1a6b28; text-decoration:underline; }
         .navbar { background:#fff; border-bottom:3px solid #2d8c3c; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:100; }
-        .navbar .brand { display:flex; align-items:center; gap:10px; font-size:22px; font-weight:600; color:#2d8c3c; }
-        .navbar .brand .logo-icon { font-size:28px; }
-        .navbar .brand span { font-weight:300; color:#999; font-size:14px; margin-left:6px; }
+        .navbar .brand { display:flex; align-items:center; gap:10px; font-size:28px; /* ✅ 修改2：头部字号调大 */ font-weight:600; color:#2d8c3c; }
+        .navbar .brand .logo-icon { font-size:32px; }
+        .navbar .brand span { font-weight:300; color:#999; font-size:16px; margin-left:6px; }
         .navbar .meta-info { font-size:13px; color:#888; background:#f5f5f5; padding:4px 14px; border-radius:20px; display:flex; align-items:center; gap:6px; }
         .navbar .meta-info .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2d8c3c; animation:pulse-dot 1.8s ease-in-out infinite; }
         @keyframes pulse-dot { 0%,100%{ opacity:0.4; transform:scale(0.9); } 50%{ opacity:1; transform:scale(1.2); } }
@@ -25,37 +27,34 @@
         .error-box { text-align:center; padding:60px 20px; color:#c0392b; background:#fff5f5; border-radius:12px; border:1px solid #fdd; }
         .error-box .error-icon { font-size:48px; margin-bottom:12px; }
         .content-card { background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:40px 48px; }
-        .markdown-body { font-size:16px; color:#333; }
+        .markdown-body { font-size:18px; /* ✅ 修改3：列表内容字号调大 */ color:#333; }
         .markdown-body h1 { font-size:30px; font-weight:600; color:#2d8c3c; border-left:5px solid #2d8c3c; padding-left:18px; margin:0 0 24px 0; }
         .markdown-body h2 { font-size:24px; font-weight:500; color:#2d8c3c; margin:32px 0 16px 0; padding-bottom:8px; border-bottom:2px solid #eef5ee; }
         .markdown-body table { width:100%; border-collapse:collapse; margin:20px 0 24px 0; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.04); }
         .markdown-body table thead { background:#2d8c3c; color:#fff; }
-        .markdown-body table thead th { padding:12px 16px; text-align:left; font-weight:500; }
+        .markdown-body table thead th { padding:12px 16px; text-align:left; font-weight:500; font-size:18px; /* ✅ 修改3：表头字号调大 */ }
         .markdown-body table tbody tr { border-bottom:1px solid #edf2ed; }
         .markdown-body table tbody tr:nth-child(even) { background:#f8fbf8; }
         .markdown-body table tbody tr:hover { background:#f0f6f0; }
-        .markdown-body table tbody td { padding:12px 16px; vertical-align:middle; }
+        .markdown-body table tbody td { padding:12px 16px; vertical-align:middle; font-size:18px; /* ✅ 修改3：单元格字号调大 */ }
         .markdown-body table tbody td a { color:#2d8c3c; font-weight:500; }
-        .markdown-body table tbody td .badge { display:inline-block; font-size:12px; background:#e8efe8; color:#2d8c3c; padding:0 10px; border-radius:12px; }
+        .markdown-body table tbody td .badge { display:inline-block; font-size:16px; background:#e8efe8; color:#2d8c3c; padding:0 10px; border-radius:12px; }
         .markdown-body .file-links { display:flex; flex-wrap:wrap; gap:12px 20px; margin:16px 0 20px 0; padding:16px 20px; background:#f9fbf9; border-radius:10px; border:1px solid #e8efe8; }
-        .markdown-body .file-links a { display:inline-flex; align-items:center; gap:6px; font-size:15px; color:#2d8c3c; background:#fff; padding:4px 14px 4px 10px; border-radius:20px; border:1px solid #dce8dc; transition:all 0.2s; }
+        .markdown-body .file-links a { display:inline-flex; align-items:center; gap:6px; font-size:17px; color:#2d8c3c; background:#fff; padding:4px 14px 4px 10px; border-radius:20px; border:1px solid #dce8dc; transition:all 0.2s; }
         .markdown-body .file-links a:hover { background:#2d8c3c; color:#fff; border-color:#2d8c3c; text-decoration:none; }
         .footer { text-align:center; padding:28px 20px 20px; color:#aaa; font-size:13px; border-top:1px solid #edf2ed; margin-top:40px; }
         .footer a { color:#2d8c3c; }
         .footer .heart { color:#e74c3c; }
         @media (max-width:768px) { .navbar { padding:12px 16px; flex-direction:column; align-items:flex-start; } .content-card { padding:20px 16px; } .markdown-body table { display:block; overflow-x:auto; white-space:nowrap; } }
-        @media (max-width:480px) { .navbar .brand { font-size:16px; } .markdown-body h1 { font-size:20px; } }
+        @media (max-width:480px) { .navbar .brand { font-size:22px; } .markdown-body h1 { font-size:20px; } }
     </style>
-    <!-- 引入 marked -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
-    </script>
 </head>
 <body>
 
     <header class="navbar">
         <div class="brand">
             <span class="logo-icon">📚</span>
-            好搭AI派
+            好搭AI派AIcoding项目展示  <!-- ✅ 修改1：头部文字更改 -->
             <span>· 项目展示</span>
         </div>
         <div class="meta-info">
@@ -86,7 +85,7 @@
             <p>
                 由 <a href="#" id="repo-link" target="_blank">GitHub 仓库</a>
                 自动生成 ·
-                <span class="heart">❤</span> 豆瓣风格
+                <span class="heart">❤</span>  <!-- ✅ 修改4：删除“豆瓣风格”字样 -->
             </p>
             <p style="margin-top:4px;font-size:12px;color:#ccc;">
                 内容随 README.md 实时更新 · 点击文件链接即可下载或查看
@@ -122,7 +121,7 @@
 
             const detected = detectRepo();
             if (!detected) {
-                // 可手动设置
+                // 如果自动识别失败，您可以取消注释手动设置
                 // var REPO_OWNER = 'kerchak-wu';
                 // var REPO_NAME = 'haoda_AlPad';
                 document.addEventListener('DOMContentLoaded', function() {
@@ -140,6 +139,7 @@
             const REPO_NAME = detected.repo;
             const BRANCH = 'main';
 
+            // DOM 引用
             const loadingEl = document.getElementById('loading');
             const errorEl = document.getElementById('error');
             const errorMsgEl = document.getElementById('error-msg');
@@ -149,20 +149,6 @@
 
             repoLinkEl.href = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
             repoLinkEl.textContent = `${REPO_OWNER}/${REPO_NAME}`;
-
-            // ---------- 正确解码 Base64 为 UTF-8 字符串 ----------
-            function base64ToUtf8(base64) {
-                // 先解码为二进制字符串（每个字符代表一个字节）
-                const binaryString = atob(base64);
-                // 将二进制字符串转为 Uint8Array
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                // 使用 TextDecoder 将字节解码为 UTF-8
-                const decoder = new TextDecoder('utf-8');
-                return decoder.decode(bytes);
-            }
 
             // ---------- 获取 README ----------
             const API_URL =
@@ -183,52 +169,58 @@
                 }
 
                 const data = await response.json();
-                console.log('📦 API 返回数据:', data);
-
                 if (!data.content) {
                     throw new Error('响应中缺少 content 字段');
                 }
 
-                // 使用正确解码
-                const decoded = base64ToUtf8(data.content);
-                if (typeof decoded !== 'string') {
-                    throw new Error('解码后的内容不是字符串');
+                // 正确解码 Base64 为 UTF-8
+                const binaryString = atob(data.content);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
                 }
+                const decoded = new TextDecoder('utf-8').decode(bytes);
+
                 console.log('✅ 解码成功，内容长度:', decoded.length);
-                console.log('📝 预览前100字符:', decoded.substring(0, 100));
                 return decoded;
             }
 
-            // ---------- 渲染 Markdown ----------
+            // ---------- 渲染 Markdown（含链接重写 + 下载属性） ----------
             function renderMarkdown(markdown) {
-                console.log('🎨 开始渲染 Markdown...');
-                try {
-                    if (typeof marked === 'undefined') {
-                        throw new Error('marked 库未加载');
+                marked.setOptions({
+                    gfm: true,
+                    breaks: false,
+                    headerIds: false,
+                    mangle: false,
+                });
+
+                const renderer = new marked.Renderer();
+                const originalLink = renderer.link;
+
+                renderer.link = function(href, title, text) {
+                    // 外部链接或锚点不变
+                    if (/^https?:\/\//i.test(href) || href.startsWith('#')) {
+                        return originalLink.call(this, href, title, text);
                     }
-                    // 配置 marked
-                    marked.setOptions({
-                        headerIds: false,
-                        mangle: false,
-                        gfm: true,
-                        breaks: false,
-                    });
-                    const html = marked.parse(markdown);
-                    if (!html) throw new Error('marked.parse 返回空');
-                    markdownEl.innerHTML = html;
-                    console.log('✅ 渲染完成');
-                    // 增强（表格、文件链接等）
-                    enhanceContent();
-                } catch (err) {
-                    console.error('❌ 渲染失败:', err);
-                    markdownEl.innerHTML =
-                        `<pre style="white-space:pre-wrap;word-break:break-all;background:#f4f8f4;padding:16px;border-radius:8px;">${markdown}</pre>`;
-                }
+                    // 内部文件 → 转为 raw 链接，并添加 download 属性 ✅ 修改：强制下载
+                    const rawUrl =
+                        `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${href}`;
+                    // 提取文件名作为 download 值
+                    const fileName = href.split('/').pop();
+                    return `<a href="${rawUrl}" target="_blank" rel="noopener noreferrer" download="${fileName}">${text}</a>`;
+                };
+
+                let html = marked.parse(markdown, { renderer });
+                markdownEl.innerHTML = html;
+
+                // 增强：包装资料链接、表格序号等
+                enhanceRenderedContent();
             }
 
-            function enhanceContent() {
-                // 可选的表格美化、链接包装等（参考之前实现）
+            function enhanceRenderedContent() {
                 const wrapper = markdownEl;
+
+                // 将纯链接段落包装成 file-links 卡片
                 const paragraphs = wrapper.querySelectorAll('p');
                 paragraphs.forEach(p => {
                     const links = p.querySelectorAll('a');
@@ -239,11 +231,15 @@
                         if (textLen > 0 && linkTextLen / textLen > 0.6) {
                             const container = document.createElement('div');
                             container.className = 'file-links';
-                            while (p.firstChild) container.appendChild(p.firstChild);
+                            while (p.firstChild) {
+                                container.appendChild(p.firstChild);
+                            }
                             p.parentNode.replaceChild(container, p);
                         }
                     }
                 });
+
+                // 表格序号加 badge
                 const tables = wrapper.querySelectorAll('table');
                 tables.forEach(table => {
                     const rows = table.querySelectorAll('tbody tr');
@@ -270,6 +266,7 @@
 
                     loadingEl.style.display = 'none';
                     contentEl.style.display = 'block';
+
                     renderMarkdown(markdown);
 
                 } catch (err) {
@@ -279,6 +276,15 @@
                     errorMsgEl.textContent = err.message || '加载失败，请检查网络或仓库设置。';
                     contentEl.style.display = 'none';
                 }
+            }
+
+            if (typeof marked === 'undefined') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'block';
+                    errorMsgEl.textContent = '❌ marked.js 库加载失败，请检查网络。';
+                });
+                return;
             }
 
             init();
