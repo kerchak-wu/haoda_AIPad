@@ -9,7 +9,7 @@ baseurl: "/haoda_AIPad"    # 如果是项目站点，填写 https://你的用户
 # ===============================
 # 主题配置 (使用 Chirpy)
 # ===============================
-remote_theme: cotes2020/jekyll-theme-chirpy
+theme: jekyll-theme-chirpy
 
 # ===============================
 # 启用远程主题插件（必须！）
