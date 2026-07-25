@@ -23,7 +23,8 @@ plugins:
 social:
   name: kerchak-wu@github
   email: 65176556@qq.com
-  links: github.com/kerchak-wu/haoda_AIPad/
+  links:
+    - https://github.com/kerchak-wu/haoda_AIPad
     # 如果有GitHub项目地址可以加在这里
 
 # ===============================
