@@ -4,7 +4,7 @@
 title: 好搭AI派AIcodinig项目库
 description: 好搭AI派项目代码和说明文档
 url: "https://kerchak-wu.github.io"  # 如果是用户站点，填写 https://你的用户名.github.io
-baseurl: "/haoda_AIPad"    # 如果是项目站点，填写 https://你的用户名.github.io/仓库名
+baseurl: ""    # 如果是项目站点，填写 https://你的用户名.github.io/仓库名
 
 # ===============================
 # 主题配置 (使用 Chirpy)
