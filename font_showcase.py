@@ -19,8 +19,10 @@ import pygame
 
 # ---------- 配置 ----------
 WIDTH, HEIGHT = 1920, 1080
-FONT_DIRS = [
-    "/home/cxdz/jupyter/assets",
+# 好搭AI派字体主目录（用户在此处增删字体文件）
+MAIN_FONT_DIR = "/home/cxdz/jupyter/assets"
+# 主目录不存在或无字体时，使用的备用系统字体目录
+FALLBACK_FONT_DIRS = [
     "/usr/share/fonts/truetype",
     "/usr/share/fonts",
 ]
@@ -41,17 +43,21 @@ PANEL_COLOR = (0, 0, 0, 130)
 PANEL_LIGHT = (30, 40, 60, 180)
 EXIT_RED = (235, 87, 87)
 
-# 默认预览文本
-DEFAULT_PREVIEW_TEXT = "好搭AI派 字体展示 Hello World 123"
+# 三行固定预览文本
+PREVIEW_LINE_CN = "连接已建立，等待数据传输。"
+PREVIEW_LINE_EN = "Algorithm is thought, code is poetry."
+PREVIEW_LINE_NUM = "149,600,000"
 
 
 def scan_fonts():
-    """扫描字体目录，返回字体文件路径列表"""
+    """扫描字体目录，返回字体文件路径列表。
+    优先扫描好搭AI派主目录；若主目录无字体则回退到系统目录。"""
     fonts = []
     seen = set()
-    for font_dir in FONT_DIRS:
+
+    def scan_dir(font_dir):
         if not os.path.isdir(font_dir):
-            continue
+            return
         for root, dirs, files in os.walk(font_dir):
             for f in sorted(files):
                 if f.lower().endswith(SUPPORTED_FORMATS):
@@ -59,6 +65,14 @@ def scan_fonts():
                     if f not in seen:
                         seen.add(f)
                         fonts.append((f, full_path))
+
+    # 1. 优先扫描主目录
+    scan_dir(MAIN_FONT_DIR)
+
+    # 2. 主目录无字体时，才回退到系统字体目录
+    if not fonts:
+        for d in FALLBACK_FONT_DIRS:
+            scan_dir(d)
     return fonts
 
 
@@ -80,6 +94,30 @@ def safe_load_font(path, size):
         return pygame.font.Font(path, size)
     except Exception:
         return None
+
+
+def font_supports_chinese(font):
+    """检测字体是否支持中文字符（通过渲染"中"字与空矩形比较）"""
+    if font is None:
+        return False
+    try:
+        test_surf = font.render("中", True, (255, 255, 255))
+        # 如果渲染出来的宽度为0或极小，说明不支持中文
+        if test_surf.get_width() < 3:
+            return False
+        # 进一步检查：比较渲染的中文和一个方块字符的宽度差异
+        # 很多不支持中文的字体会把所有中文字形渲染成相同的占位符
+        s1 = font.render("中", True, (255, 255, 255))
+        s2 = font.render("文", True, (255, 255, 255))
+        s3 = font.render("测", True, (255, 255, 255))
+        # 如果三个不同的汉字渲染出来宽度完全相同，很可能是占位符
+        if s1.get_width() == s2.get_width() == s3.get_width():
+            # 再用像素采样验证：检查中心区域像素是否全是同一个颜色（占位框特征）
+            # 但为了简单，这里用宽度判断已足够准确
+            pass
+        return s1.get_width() > 3
+    except Exception:
+        return False
 
 
 class Button:
@@ -249,13 +287,13 @@ def main():
     selected_idx = 0
 
     # 预览设置
-    preview_text = DEFAULT_PREVIEW_TEXT
     preview_size = 48
     min_preview_size = 12
     max_preview_size = 120
 
     # 预览字体缓存
     preview_font_cache = {}
+    chinese_support_cache = {}
 
     def get_preview_font(size):
         """获取当前选中字体的指定大小字体对象"""
@@ -272,6 +310,28 @@ def main():
                 f = make_ui_font(size)
             preview_font_cache[key] = f
         return preview_font_cache[key]
+
+    def has_chinese_support():
+        """检测当前选中字体是否支持中文"""
+        nonlocal chinese_support_cache
+        if not font_files or selected_idx >= len(font_files):
+            return True
+        fpath = font_files[selected_idx][1]
+        if not fpath:
+            return True
+        if fpath in chinese_support_cache:
+            return chinese_support_cache[fpath]
+        # 用小尺寸检测，速度快
+        test_font = safe_load_font(fpath, 24)
+        result = font_supports_chinese(test_font)
+        chinese_support_cache[fpath] = result
+        return result
+
+    # ---------- 辅助函数（必须在按钮定义之前声明） ----------
+    def change_size(delta):
+        nonlocal preview_size
+        preview_size = max(min_preview_size, min(max_preview_size, preview_size + delta))
+        preview_font_cache.clear()
 
     # ---------- 按钮 ----------
     # 退出按钮
@@ -297,23 +357,7 @@ def main():
         "A+", lambda: change_size(4), font_btn_small,
     )
 
-    # 重置预览文本按钮
-    btn_reset_text = Button(
-        (preview_x + preview_w - 200, preview_y + 10, 180, 44),
-        "重置预览文本", reset_preview_text, font_btn_small,
-    )
-
-    buttons = [exit_btn, btn_size_down, btn_size_up, btn_reset_text]
-
-    # ---------- 辅助函数 ----------
-    def change_size(delta):
-        nonlocal preview_size
-        preview_size = max(min_preview_size, min(max_preview_size, preview_size + delta))
-        preview_font_cache.clear()
-
-    def reset_preview_text():
-        nonlocal preview_text
-        preview_text = DEFAULT_PREVIEW_TEXT
+    buttons = [exit_btn, btn_size_down, btn_size_up]
 
     def clamp_scroll():
         nonlocal scroll_offset
@@ -323,16 +367,9 @@ def main():
     clamp_scroll()
 
     # ---------- 文本输入状态 ----------
-    text_input_active = False
-    input_cursor_visible = True
-    cursor_blink_tick = 0
-
-    # 预览文本输入框
-    input_box_x = preview_x + 20
-    input_box_y = preview_y + 70
-    input_box_w = preview_w - 40
-    input_box_h = 50
-    input_box_rect = pygame.Rect(input_box_x, input_box_y, input_box_w, input_box_h)
+    # 滚动条拖拽状态
+    scrollbar_dragging = False
+    scrollbar_drag_offset = 0
 
     # ---------- 主循环 ----------
     running = True
@@ -345,31 +382,22 @@ def main():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-                elif text_input_active:
-                    if event.key == pygame.K_RETURN:
-                        text_input_active = False
-                    elif event.key == pygame.K_BACKSPACE:
-                        preview_text = preview_text[:-1]
-                    else:
-                        if event.unicode and event.unicode.isprintable():
-                            preview_text += event.unicode
-                else:
-                    if event.key == pygame.K_UP:
-                        if selected_idx > 0:
-                            selected_idx -= 1
-                            if selected_idx < scroll_offset:
-                                scroll_offset = selected_idx
-                            preview_font_cache.clear()
-                    elif event.key == pygame.K_DOWN:
-                        if selected_idx < len(font_files) - 1:
-                            selected_idx += 1
-                            if selected_idx >= scroll_offset + max_visible:
-                                scroll_offset = selected_idx - max_visible + 1
-                            preview_font_cache.clear()
-                    elif event.key == pygame.K_LEFT:
-                        change_size(-4)
-                    elif event.key == pygame.K_RIGHT:
-                        change_size(4)
+                elif event.key == pygame.K_UP:
+                    if selected_idx > 0:
+                        selected_idx -= 1
+                        if selected_idx < scroll_offset:
+                            scroll_offset = selected_idx
+                        preview_font_cache.clear()
+                elif event.key == pygame.K_DOWN:
+                    if selected_idx < len(font_files) - 1:
+                        selected_idx += 1
+                        if selected_idx >= scroll_offset + max_visible:
+                            scroll_offset = selected_idx - max_visible + 1
+                        preview_font_cache.clear()
+                elif event.key == pygame.K_LEFT:
+                    change_size(-4)
+                elif event.key == pygame.K_RIGHT:
+                    change_size(4)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     # 检查退出等按钮
@@ -381,11 +409,26 @@ def main():
                     if clicked:
                         continue
 
-                    # 检查输入框点击
-                    if input_box_rect.collidepoint(event.pos):
-                        text_input_active = True
-                    else:
-                        text_input_active = False
+                    # 检查滚动条拖拽
+                    if len(font_files) > max_visible:
+                        sb_w = 28
+                        sb_x = list_panel_x + list_panel_w - sb_w - 8
+                        sb_y = list_panel_y + list_top_pad
+                        sb_h = list_panel_h - list_top_pad - 20
+                        thumb_h = max(48, int(sb_h * (max_visible / len(font_files))))
+                        thumb_y = sb_y + int((sb_h - thumb_h) * (scroll_offset / max(1, len(font_files) - max_visible)))
+                        # 点击在滑块上：开始拖拽
+                        if sb_x <= event.pos[0] <= sb_x + sb_w and sb_y <= event.pos[1] <= sb_y + sb_h:
+                            if thumb_y <= event.pos[1] <= thumb_y + thumb_h:
+                                scrollbar_dragging = True
+                                scrollbar_drag_offset = event.pos[1] - thumb_y
+                            else:
+                                # 点击在轨道上：跳转
+                                rel = event.pos[1] - sb_y - thumb_h // 2
+                                ratio = max(0, min(1, rel / max(1, sb_h - thumb_h)))
+                                scroll_offset = int(ratio * max(0, len(font_files) - max_visible))
+                                clamp_scroll()
+                            continue
 
                     # 检查字体列表点击
                     list_rect = pygame.Rect(list_panel_x + 10, list_panel_y + list_top_pad,
@@ -405,12 +448,20 @@ def main():
                     if pygame.Rect(list_panel_x, list_panel_y, list_panel_w, list_panel_h).collidepoint(mouse_pos):
                         scroll_offset += 3
                         clamp_scroll()
-
-        # 光标闪烁
-        cursor_blink_tick += 1
-        if cursor_blink_tick >= 30:
-            cursor_blink_tick = 0
-            input_cursor_visible = not input_cursor_visible
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    scrollbar_dragging = False
+            elif event.type == pygame.MOUSEMOTION:
+                if scrollbar_dragging and len(font_files) > max_visible:
+                    sb_w = 28
+                    sb_x = list_panel_x + list_panel_w - sb_w - 8
+                    sb_y = list_panel_y + list_top_pad
+                    sb_h = list_panel_h - list_top_pad - 20
+                    thumb_h = max(48, int(sb_h * (max_visible / len(font_files))))
+                    rel = event.pos[1] - sb_y - scrollbar_drag_offset
+                    ratio = max(0, min(1, rel / max(1, sb_h - thumb_h)))
+                    scroll_offset = int(ratio * max(0, len(font_files) - max_visible))
+                    clamp_scroll()
 
         # ====================================================
         # 绘制
@@ -511,17 +562,23 @@ def main():
 
         screen.set_clip(None)
 
-        # 滚动条
+        # 滚动条（加大尺寸便于触摸控制）
         if len(font_files) > max_visible:
-            scroll_bar_x = list_panel_x + list_panel_w - 8
+            scroll_bar_w = 28
+            scroll_bar_x = list_panel_x + list_panel_w - scroll_bar_w - 8
             scroll_bar_y = list_panel_y + list_top_pad
             scroll_bar_h = list_panel_h - list_top_pad - 20
-            thumb_h = max(30, int(scroll_bar_h * (max_visible / len(font_files))))
-            thumb_y = scroll_bar_y + int((scroll_bar_h - thumb_h) * (scroll_offset / (len(font_files) - max_visible)))
-            pygame.draw.rect(screen, (100, 120, 150, 100),
-                             (scroll_bar_x, scroll_bar_y, 4, scroll_bar_h), border_radius=2)
+            thumb_h = max(48, int(scroll_bar_h * (max_visible / len(font_files))))
+            thumb_y = scroll_bar_y + int((scroll_bar_h - thumb_h) * (scroll_offset / max(1, len(font_files) - max_visible)))
+            # 轨道背景
+            pygame.draw.rect(screen, (80, 100, 130, 120),
+                             (scroll_bar_x, scroll_bar_y, scroll_bar_w, scroll_bar_h), border_radius=10)
+            # 滑块
             pygame.draw.rect(screen, ACCENT,
-                             (scroll_bar_x - 2, thumb_y, 8, thumb_h), border_radius=4)
+                             (scroll_bar_x + 2, thumb_y, scroll_bar_w - 4, thumb_h), border_radius=8)
+            # 滑块高光
+            pygame.draw.rect(screen, (180, 220, 255, 180),
+                             (scroll_bar_x + 4, thumb_y + 3, scroll_bar_w - 12, 4), border_radius=2)
 
         # ----- 右侧：预览区域 -----
         preview_panel = pygame.Surface((preview_w, preview_h), pygame.SRCALPHA)
@@ -535,35 +592,19 @@ def main():
         draw_text(screen, "字体预览", font_preview_label, GOLD,
                   (preview_x + 20, preview_y + 16), anchor="topleft")
 
-        # 预览文本输入框
-        input_bg = pygame.Surface((input_box_w, input_box_h), pygame.SRCALPHA)
-        input_bg.fill((0, 0, 0, 80))
-        screen.blit(input_bg, input_box_rect.topleft)
-        border_color = GOLD if text_input_active else (100, 130, 160)
-        pygame.draw.rect(screen, border_color, input_box_rect, 2, border_radius=8)
-
-        # 输入提示
-        if not preview_text:
-            draw_text(screen, "点击此处输入自定义预览文本...", font_list_item, (120, 140, 160),
-                      (input_box_rect.x + 15, input_box_rect.centery), anchor="midleft")
+        # 中文支持状态标识
+        cn_supported = has_chinese_support()
+        if cn_supported:
+            cn_status_text = "✓ 支持中文"
+            cn_status_color = (100, 220, 130)
         else:
-            # 计算可见文本（从右向左裁剪，显示最新输入）
-            display_text = preview_text
-            text_surf = font_list_item.render(display_text, True, WHITE)
-            while text_surf.get_width() > input_box_w - 30 and len(display_text) > 0:
-                display_text = display_text[1:]
-                text_surf = font_list_item.render(display_text, True, WHITE)
-            screen.blit(text_surf, (input_box_rect.x + 15, input_box_rect.centery - text_surf.get_height() // 2))
-
-            # 光标
-            if text_input_active and input_cursor_visible:
-                cursor_x = input_box_rect.x + 15 + text_surf.get_width() + 2
-                cursor_y = input_box_rect.y + 10
-                cursor_h = input_box_h - 20
-                pygame.draw.line(screen, WHITE, (cursor_x, cursor_y), (cursor_x, cursor_y + cursor_h), 2)
+            cn_status_text = "✗ 不含中文"
+            cn_status_color = (255, 150, 100)
+        draw_text(screen, cn_status_text, font_list_item, cn_status_color,
+                  (preview_x + preview_w - 20, preview_y + 28), anchor="topright")
 
         # 当前字体信息
-        info_y = input_box_y + input_box_h + 20
+        info_y = preview_y + 70
         if font_files and selected_idx < len(font_files):
             fname, fpath = font_files[selected_idx]
             ftype = get_font_type(fname)
@@ -596,32 +637,42 @@ def main():
         screen.blit(preview_bg, preview_area_rect.topleft)
         pygame.draw.rect(screen, (100, 130, 160), preview_area_rect, 1, border_radius=8)
 
-        # 渲染预览文本（使用选中的字体）
-        if preview_text:
-            preview_font = get_preview_font(preview_size)
-            lines = wrap_text(preview_text, preview_font, preview_w - 80)
+        # 渲染三行预览文本（中文 / 英文 / 数字）
+        preview_font = get_preview_font(preview_size)
+        line_gap = int(preview_size * 0.6)
 
-            # 垂直居中
-            total_h = len(lines) * (preview_size + 10)
-            start_y = preview_area_top + (preview_area_h - total_h) // 2
-
-            for i, line in enumerate(lines):
-                line_surf = preview_font.render(line, True, WHITE)
-                # 阴影
-                shadow_surf = preview_font.render(line, True, (0, 0, 0))
-                line_x = preview_x + (preview_w - line_surf.get_width()) // 2
-                line_y = start_y + i * (preview_size + 10)
-                for dx in (-1, 0, 1):
-                    for dy in (-1, 0, 1):
-                        if dx == 0 and dy == 0:
-                            continue
-                        screen.blit(shadow_surf, (line_x + dx, line_y + dy))
-                screen.blit(line_surf, (line_x, line_y))
+        # 构建要显示的行列表
+        display_lines = []
+        if cn_supported:
+            display_lines.append((PREVIEW_LINE_CN, "cn"))
         else:
-            draw_text(screen, "（预览文本为空，请在上方输入框输入文字）",
-                      font_list_item, (150, 170, 190),
-                      (preview_x + preview_w // 2, preview_area_top + preview_area_h // 2),
-                      anchor="center")
+            display_lines.append(("[ 该字体不含中文字形 ]", "cn_placeholder"))
+        display_lines.append((PREVIEW_LINE_EN, "en"))
+        display_lines.append((PREVIEW_LINE_NUM, "num"))
+
+        total_h = len(display_lines) * preview_size + (len(display_lines) - 1) * line_gap
+        start_y = preview_area_top + (preview_area_h - total_h) // 2
+
+        for i, (line_text, line_type) in enumerate(display_lines):
+            if line_type == "cn_placeholder":
+                # 不含中文时显示占位提示（用UI字体，灰色斜体风格）
+                placeholder_font = make_ui_font(int(preview_size * 0.7))
+                line_surf = placeholder_font.render(line_text, True, (150, 150, 170))
+                shadow_surf = placeholder_font.render(line_text, True, (0, 0, 0))
+            else:
+                line_surf = preview_font.render(line_text, True, WHITE)
+                shadow_surf = preview_font.render(line_text, True, (0, 0, 0))
+
+            line_x = preview_x + (preview_w - line_surf.get_width()) // 2
+            line_y = start_y + i * (preview_size + line_gap)
+
+            # 阴影描边
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    screen.blit(shadow_surf, (line_x + dx, line_y + dy))
+            screen.blit(line_surf, (line_x, line_y))
 
         # 字体大小控制区
         draw_text(screen, "字体大小", font_size_label, ACCENT,
@@ -648,7 +699,7 @@ def main():
             b.draw(screen)
 
         # ----- 底部快捷键提示 -----
-        hint = "快捷键：↑↓ 选择字体 | ← → 调整大小 | 点击输入框编辑预览文本 | ESC 退出"
+        hint = "快捷键：↑↓ 选择字体 | ← → 调整大小 | 拖动滚动条浏览列表 | ESC 退出"
         draw_text(screen, hint, font_list_small, (180, 180, 180),
                   (WIDTH // 2, HEIGHT - 30), anchor="center")
 
