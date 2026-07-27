@@ -19,4 +19,4 @@
 | 6 | 红色文化交互展示 | [red_revolution_app.py](red_revolution_app.py) | [📄 项目说明文档](红色文化交互展示项目说明文档.md) |
 | 7 | 语音大模型对话 | [voice_llm_chat.py](voice_llm_chat.py) | [📄 项目说明文档](语音大模型对话项目说明文档.md) |
 | 8 | 字体展示程序 | [font_showcase.py](font_showcase.py) | [📄 项目说明文档](字体展示项目说明文档.md) |
-| 9 | 天气预报 | [weather.py](weather.py) | [📄 项目说明文档](天气预报项目说明文档.md) |
+| 9 | 天气信息展示 | [weather_app.py](weather_app.py) | [📄 项目说明文档](城市天气展示项目说明文档.md) |
