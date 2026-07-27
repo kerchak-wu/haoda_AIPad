@@ -3,7 +3,7 @@
 
 ## 项目资料
 
-- [📄 好搭AI派编程手册](C__好搭Block_resources_AISeeKer.pdf) — 好搭AI派编程手册
+- [📄 好搭AI派编程手册](好搭AI派编程手册.pdf) — 好搭AI派编程手册
 - [📄 好搭AI派范例代码](好搭AI派范例代码.txt) — 好搭AI派范例代码
 - [📄 好搭AI派字体文件列表](好搭AI派字体文件名称列表.txt) — 上传到好搭AI派的字体文件
 
@@ -19,3 +19,4 @@
 | 6 | 红色文化交互展示 | [red_revolution_app.py](red_revolution_app.py) | [📄 项目说明文档](红色文化交互展示项目说明文档.md) |
 | 7 | 语音大模型对话 | [voice_llm_chat.py](voice_llm_chat.py) | [📄 项目说明文档](语音大模型对话项目说明文档.md) |
 | 8 | 字体展示程序 | [font_showcase.py](font_showcase.py) | [📄 项目说明文档](字体展示项目说明文档.md) |
+| 9 | 天气预报 | [weather.py](weather.py) | [📄 项目说明文档](天气预报项目说明文档.md) |
