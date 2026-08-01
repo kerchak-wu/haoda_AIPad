@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>好搭AI派AIcoding项目集</title>
+    <!-- Font Awesome 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
+    </script>
+    <style>
+        /* ===== 豆瓣风格样式 ===== */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background:#f7f7f7; color:#333; line-height:1.7; }
+        a { color:#2d8c3c; text-decoration:none; }
+        a:hover { color:#1a6b28; text-decoration:underline; }
+        .navbar { background:#fff; border-bottom:3px solid #2d8c3c; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:100; }
+        .navbar .brand { display:flex; align-items:center; gap:10px; font-size:28px; font-weight:600; color:#2d8c3c; }
+        .navbar .brand .logo-icon { font-size:32px; }
+        .navbar .meta-info { font-size:13px; color:#888; background:#f5f5f5; padding:4px 14px; border-radius:20px; display:flex; align-items:center; gap:6px; }
+        .navbar .meta-info .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2d8c3c; animation:pulse-dot 1.8s ease-in-out infinite; }
+        @keyframes pulse-dot { 0%,100%{ opacity:0.4; transform:scale(0.9); } 50%{ opacity:1; transform:scale(1.2); } }
+        .container { max-width:1300px; margin:0 auto; padding:32px 40px 60px; }
+        .loading-box { text-align:center; padding:80px 20px; color:#999; font-size:16px; }
+        .loading-box .spinner { display:inline-block; width:44px; height:44px; border:4px solid #e8e8e8; border-top:4px solid #2d8c3c; border-radius:50%; animation:spin 0.9s linear infinite; margin-bottom:18px; }
+        @keyframes spin { 0%{ transform:rotate(0deg); } 100%{ transform:rotate(360deg); } }
+        .error-box { text-align:center; padding:60px 20px; color:#c0392b; background:#fff5f5; border-radius:12px; border:1px solid #fdd; }
+        .error-box .error-icon { font-size:48px; margin-bottom:12px; }
+        .content-card { background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:48px 56px; }
+        .markdown-body { font-size:18px; color:#333; }
+        .markdown-body h1 { font-size:30px; font-weight:600; color:#2d8c3c; border-left:5px solid #2d8c3c; padding-left:18px; margin:0 0 24px 0; }
+        .markdown-body h2 { font-size:24px; font-weight:500; color:#2d8c3c; margin:32px 0 16px 0; padding-bottom:8px; border-bottom:2px solid #eef5ee; }
+        .markdown-body table {
+            width: auto;          /* 表格宽度由内容决定 */
+            min-width: 100%;      /* 至少占满容器宽度，内容超出则撑开 */
+            border-collapse: collapse;
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+            white-space: nowrap;  /* 防止单元格内容换行，保证横向滚动效果 */
+        }
+        .markdown-body table thead { background:#2d8c3c; color:#fff; }
+        .markdown-body table thead th { padding:12px 16px; text-align:left; font-weight:500; font-size:18px; }
+        .markdown-body table tbody tr { border-bottom:1px solid #edf2ed; }
+        .markdown-body table tbody tr:nth-child(even) { background:#f8fbf8; }
+        .markdown-body table tbody tr:hover { background:#f0f6f0; }
+        .markdown-body table tbody td { padding:12px 16px; vertical-align:middle; font-size:18px; }
+        .markdown-body table tbody td a { color:#2d8c3c; font-weight:500; }
+        .markdown-body table tbody td .badge { display:inline-block; font-size:16px; background:#e8efe8; color:#2d8c3c; padding:0 10px; border-radius:12px; }
+        /* 表格包装容器（由 JavaScript 动态添加） */
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 20px 0;
+        }
+        .markdown-body .file-links { display:flex; flex-wrap:wrap; gap:12px 20px; margin:16px 0 20px 0; padding:16px 20px; background:#f9fbf9; border-radius:10px; border:1px solid #e8efe8; }
+        .markdown-body .file-links a { display:inline-flex; align-items:center; gap:6px; font-size:17px; color:#2d8c3c; background:#fff; padding:4px 14px 4px 10px; border-radius:20px; border:1px solid #dce8dc; transition:all 0.2s; }
+        .markdown-body .file-links a:hover { background:#2d8c3c; color:#fff; border-color:#2d8c3c; text-decoration:none; }
+        .footer { text-align:center; padding:28px 20px 20px; color:#555; font-size:15px; border-top:1px solid #edf2ed; margin-top:40px; }
+        .footer a { color:#2d8c3c; margin:0 8px; }
+        .footer a:hover { color:#1a6b28; }
+        .footer .icon { margin-right:4px; }
+        @media (max-width:768px) {
+            .navbar { padding:12px 16px; flex-direction:column; align-items:flex-start; }
+            .content-card { padding:20px 16px; }
+            .container { padding:16px 16px 40px; }
+            /* 移动端确保表格的白色背景和圆角正常，但包装容器已提供滚动 */
+            .markdown-body table {
+                min-width: 100%;   /* 保持至少占满容器，内容超出则撑开 */
+                width: auto;
+            }
+        }
+        @media (max-width:480px) {
+            .navbar .brand { font-size:22px; }
+            .markdown-body h1 { font-size:20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="navbar">
+        <div class="brand">
+            <span class="logo-icon">📚</span>
+            好搭AI派AIcoding项目集
+        </div>
+        <div class="meta-info">
+            <span class="dot"></span>
+            数据实时同步 · GitHub
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="app">
+            <div id="loading" class="loading-box">
+                <div class="spinner"></div>
+                <p>正在加载项目资料 …</p>
+            </div>
+            <div id="error" class="error-box" style="display:none;">
+                <div class="error-icon">⚠️</div>
+                <p id="error-msg">加载失败，请稍后重试。</p>
+                <p style="margin-top:12px;font-size:14px;color:#888;">
+                    请确保仓库公开且 README.md 存在。
+                </p>
+            </div>
+            <div id="content" class="content-card" style="display:none;">
+                <div id="markdown-content" class="markdown-body"></div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>
+                <a href="mailto:65176556@qq.com" title="发送邮件">
+                    <i class="fas fa-envelope icon"></i> 65176556@qq.com
+                </a>
+                <span style="color:#ccc;margin:0 6px;">·</span>
+                <a href="https://github.com/kerchak-wu" target="_blank" title="GitHub主页">
+                    <i class="fab fa-github icon"></i> @kerchak-wu
+                </a>
+            </p>
+            <p style="margin-top:8px;font-size:12px;color:#ccc;">
+                内容随 README.md 实时更新 · 点击文件链接即可下载
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ---------- 自动检测仓库 ----------
+            function detectRepo() {
+                const hostname = window.location.hostname;
+                const pathname = window.location.pathname;
+                let owner = null,
+                    repo = null;
+                if (hostname.endsWith('.github.io')) {
+                    const parts = hostname.split('.');
+                    if (parts.length >= 3) {
+                        owner = parts[0];
+                        const pathParts = pathname.split('/').filter(p => p.length > 0);
+                        if (pathParts.length > 0) {
+                            repo = pathParts[0];
+                        } else {
+                            repo = `${owner}.github.io`;
+                        }
+                        return { owner, repo };
+                    }
+                }
+                return null;
+            }
+
+            const detected = detectRepo();
+            if (!detected) {
+                // 如果自动识别失败，取消注释手动设置
+                // var REPO_OWNER = 'kerchak-wu';
+                // var REPO_NAME = 'haoda_AlPad';
+                document.addEventListener('DOMContentLoaded', function() {
+                    const loading = document.getElementById('loading');
+                    const error = document.getElementById('error');
+                    const errorMsg = document.getElementById('error-msg');
+                    loading.style.display = 'none';
+                    error.style.display = 'block';
+                    errorMsg.innerHTML = '无法自动识别仓库信息，请在脚本中手动设置 REPO_OWNER 和 REPO_NAME。';
+                });
+                return;
+            }
+
+            const REPO_OWNER = detected.owner;
+            const REPO_NAME = detected.repo;
+            const BRANCH = 'main';
+
+            // DOM 引用
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            const errorMsgEl = document.getElementById('error-msg');
+            const contentEl = document.getElementById('content');
+            const markdownEl = document.getElementById('markdown-content');
+
+            // ---------- 获取 README ----------
+            const API_URL =
+                `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/README.md?ref=${BRANCH}`;
+
+            async function fetchReadme() {
+                console.log('🔄 正在获取 README.md...');
+                const response = await fetch(API_URL, {
+                    headers: { 'Accept': 'application/vnd.github.v3+json' }
+                });
+
+                if (!response.ok) {
+                    let detail = '';
+                    if (response.status === 404) detail = '未找到 README.md 文件。';
+                    else if (response.status === 403) detail = 'API 访问限制（每小时60次），请稍后再试。';
+                    else detail = `HTTP ${response.status} ${response.statusText}`;
+                    throw new Error(detail);
+                }
+
+                const data = await response.json();
+                if (!data.content) {
+                    throw new Error('响应中缺少 content 字段');
+                }
+
+                // 正确解码 Base64 为 UTF-8
+                const binaryString = atob(data.content);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const decoded = new TextDecoder('utf-8').decode(bytes);
+
+                console.log('✅ 解码成功，内容长度:', decoded.length);
+                return decoded;
+            }
+
+            // ---------- 强制下载函数 ----------
+            async function downloadFile(url, filename) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error('下载失败');
+                    const blob = await response.blob();
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                } catch (err) {
+                    console.error('下载出错:', err);
+                    alert('下载失败，请稍后重试或右键另存为。');
+                }
+            }
+
+            // ---------- 渲染 Markdown（含链接重写 + 强制下载） ----------
+            function renderMarkdown(markdown) {
+                marked.setOptions({
+                    gfm: true,
+                    breaks: false,
+                    headerIds: false,
+                    mangle: false,
+                });
+
+                const renderer = new marked.Renderer();
+                const originalLink = renderer.link;
+
+                renderer.link = function(href, title, text) {
+                    // 外部链接或锚点保持原样
+                    if (/^https?:\/\//i.test(href) || href.startsWith('#')) {
+                        return originalLink.call(this, href, title, text);
+                    }
+                    // 内部文件：生成 raw 链接，并添加 data-raw-url 和 data-filename 属性
+                    const rawUrl =
+                        `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${href}`;
+                    const fileName = href.split('/').pop();
+                    return `<a href="${rawUrl}" data-raw-url="${rawUrl}" data-filename="${fileName}" target="_blank">${text}</a>`;
+                };
+
+                let html = marked.parse(markdown, { renderer });
+                markdownEl.innerHTML = html;
+
+                enhanceRenderedContent();
+
+                // ---------- 绑定下载事件 ----------
+                const internalLinks = markdownEl.querySelectorAll('a[data-raw-url]');
+                internalLinks.forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const url = this.getAttribute('data-raw-url');
+                        const filename = this.getAttribute('data-filename');
+                        downloadFile(url, filename);
+                    });
+                });
+            }
+
+            function enhanceRenderedContent() {
+                const wrapper = markdownEl;
+
+                // 1. 将纯链接段落包装成 file-links 卡片
+                const paragraphs = wrapper.querySelectorAll('p');
+                paragraphs.forEach(p => {
+                    const links = p.querySelectorAll('a');
+                    if (links.length > 0) {
+                        const textLen = p.textContent.trim().length;
+                        let linkTextLen = 0;
+                        links.forEach(a => { linkTextLen += a.textContent.length; });
+                        if (textLen > 0 && linkTextLen / textLen > 0.6) {
+                            const container = document.createElement('div');
+                            container.className = 'file-links';
+                            while (p.firstChild) {
+                                container.appendChild(p.firstChild);
+                            }
+                            p.parentNode.replaceChild(container, p);
+                        }
+                    }
+                });
+
+                // 2. 表格序号加 badge
+                const tables = wrapper.querySelectorAll('table');
+                tables.forEach(table => {
+                    // 处理表格内序号
+                    const rows = table.querySelectorAll('tbody tr');
+                    rows.forEach(row => {
+                        const firstCell = row.querySelector('td:first-child');
+                        if (firstCell) {
+                            const val = firstCell.textContent.trim();
+                            if (/^\d+$/.test(val)) {
+                                firstCell.innerHTML = `<span class="badge">#${val}</span>`;
+                            }
+                        }
+                    });
+
+                    // 3. 用 div 包装表格，实现横向滚动（移动端保持宽度）
+                    const parent = table.parentNode;
+                    // 如果已经包装过则跳过
+                    if (parent && parent.classList && parent.classList.contains('table-wrapper')) {
+                        return;
+                    }
+                    const wrapperDiv = document.createElement('div');
+                    wrapperDiv.className = 'table-wrapper';
+                    table.parentNode.insertBefore(wrapperDiv, table);
+                    wrapperDiv.appendChild(table);
+                });
+            }
+
+            // ---------- 主流程 ----------
+            async function init() {
+                try {
+                    loadingEl.style.display = 'block';
+                    errorEl.style.display = 'none';
+                    contentEl.style.display = 'none';
+
+                    const markdown = await fetchReadme();
+
+                    loadingEl.style.display = 'none';
+                    contentEl.style.display = 'block';
+
+                    renderMarkdown(markdown);
+
+                } catch (err) {
+                    console.error('❌ 加载失败:', err);
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'block';
+                    errorMsgEl.textContent = err.message || '加载失败，请检查网络或仓库设置。';
+                    contentEl.style.display = 'none';
+                }
+            }
+
+            if (typeof marked === 'undefined') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'block';
+                    errorMsgEl.textContent = '❌ marked.js 库加载失败，请检查网络。';
+                });
+                return;
+            }
+
+            init();
+
+        })();
+    </script>
+
+</body>
+</html>
