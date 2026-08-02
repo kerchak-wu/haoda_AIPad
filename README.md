@@ -1,6 +1,6 @@
 # Haoda_AIPad
 
-好搭AI派项目 with Trae work
+好搭AI派AIcoding项目集
 
 ## 项目资料
 
