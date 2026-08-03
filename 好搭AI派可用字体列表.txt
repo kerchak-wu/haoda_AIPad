@@ -2,7 +2,7 @@
 好搭AI派可用字体列表
 ============================================================
 
-/home/cxdz/jupyter/assets/
+字体文件地址：/home/cxdz/jupyter/assets/
 
 Deng.ttf
 Dengb.ttf
