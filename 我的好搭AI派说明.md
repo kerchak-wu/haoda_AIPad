@@ -6,4 +6,8 @@
   
 ## 上传了字体文件
 
-- https://chat.deepseek.com/share/q83n07e44qrx5csiiq
+- <https://chat.deepseek.com/share/q83n07e44qrx5csiiq>
+
+## 安装库 mediapipe
+
+- python3 -m pip install mediapipe -i <https://pypi.tuna.tsinghua.edu.cn/simple>
