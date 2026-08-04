@@ -13,13 +13,7 @@
   - 摄像头（好搭AI派内置/USB 摄像头）
   - 需联网（语音 AI 在线合成）
 
-OCR 后端说明（容错机制）：
-  - 优先使用官方 text_recognition.TextRecognizer（依赖 ppocr_system / PaddleOCR）
-  - 若官方后端不可用，自动回退到 pytesseract（Tesseract OCR，纯软件库）
-  - 若设备未安装 tesseract-ocr，请在终端执行：
-      sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim
-      pip install pytesseract
-  - 界面右下角会显示当前使用的 OCR 后端名称
+OCR 后端：使用官方 text_recognition.TextRecognizer（依赖 ppocr_system / PaddleOCR）
 
 参考范例：
   - 范例代码 5.AI视觉算法 21.实时文字识别（摄像头+OCR+TTS）
@@ -103,49 +97,18 @@ vision_system = create_vision_system_v3(
 )
 print("视觉系统初始化完成（camera_id=-1 自动检测）")
 
-# ---- OCR 后端初始化（必须在 open_camera 之前）----
+# ---- OCR 初始化（必须在 open_camera 之前）----
 # text_recognition 已在文件最顶部导入（避免 utils 模块名冲突）
-# 此处仅创建实例；若顶部导入失败，尝试 pytesseract 备选后端
-ocr_backend = None          # 'paddleocr' | 'tesseract' | None
-ocr_recognizer = None       # 官方 TextRecognizer 实例（仅 paddleocr 后端使用）
-ocr_backend_name = '不可用'
-TESSERACT_LANG = 'chi_sim+eng'   # Tesseract 语言包（简体中文+英文）
-
+# 使用官方 text_recognition.TextRecognizer（依赖 ppocr_system / PaddleOCR）
+ocr_recognizer = None
 if _TEXT_RECOGNITION_AVAILABLE:
     try:
         ocr_recognizer = _TextRecognizer()
-        ocr_backend = 'paddleocr'
-        ocr_backend_name = 'PaddleOCR（官方）'
         print('OCR 后端：PaddleOCR（官方 text_recognition）')
     except Exception as e:
         print('TextRecognizer 实例化失败:', e)
-        ocr_backend = None
 else:
     print('官方 text_recognition 导入失败:', _TEXT_RECOGNITION_ERROR)
-
-# 若官方后端不可用，尝试 pytesseract 备选
-if ocr_backend is None:
-    print('尝试加载 pytesseract 备选后端…')
-    try:
-        import pytesseract
-        _ver = pytesseract.get_tesseract_version()
-        try:
-            pytesseract.image_to_string(
-                cv2.imread('images/text_rec.png') if os.path.exists('images/text_rec.png')
-                else pygame.Surface((10, 10)),
-                lang=TESSERACT_LANG
-            )
-        except Exception:
-            TESSERACT_LANG = 'eng'
-            print('未检测到 chi_sim 语言包，Tesseract 退化为英文识别')
-        ocr_backend = 'tesseract'
-        ocr_backend_name = 'Tesseract v%s（备选, lang=%s）' % (_ver, TESSERACT_LANG)
-        print('OCR 后端：Tesseract（pytesseract）', _ver)
-    except Exception as e2:
-        print('pytesseract 也不可用:', e2)
-        ocr_backend = None
-        ocr_backend_name = '不可用'
-        print('警告：无可用 OCR 后端！')
 
 # ---- 语音 AI + 音频播放器 ----
 voice_api = VoiceAPI('http://www.haohaodada.com/project/voiceAI/ApiZNBW.php')
@@ -168,60 +131,21 @@ print("摄像头后台检测已启动，画面将在 Pygame 界面中显示")
 
 
 def ocr_recognize(frame, confidence_threshold=OCR_CONFIDENCE):
-    """统一的 OCR 识别函数，根据可用后端进行识别。
-    返回与官方 TextRecognizer 一致的结果结构：{"success": bool, "text": str}
+    """OCR 识别函数（严格参照范例 5.21）。
+    返回官方 TextRecognizer 结果结构：{"success": bool, "text": str}
     """
-    if frame is None:
+    if frame is None or ocr_recognizer is None:
         return {"success": False, "text": ""}
-
-    # ---- 后端1：官方 PaddleOCR（严格参照范例 5.21）----
-    if ocr_backend == 'paddleocr':
-        try:
-            return ocr_recognizer.recognize_text(frame, confidence_threshold=confidence_threshold)
-        except Exception as e:
-            print('[OCR] PaddleOCR 识别异常:', e)
-            return {"success": False, "text": ""}
-
-    # ---- 后端2：Tesseract（备选，纯软件实现）----
-    if ocr_backend == 'tesseract':
-        import pytesseract
-        try:
-            # 灰度化 + 轻度预处理，提升识别率
-            if len(frame.shape) == 3:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = frame
-            # 逐词识别以支持置信度过滤
-            data = pytesseract.image_to_data(
-                gray, lang=TESSERACT_LANG,
-                output_type=pytesseract.Output.DICT
-            )
-            texts = []
-            n = len(data['text'])
-            for i in range(n):
-                txt = data['text'][i].strip()
-                if not txt:
-                    continue
-                try:
-                    conf = float(data['conf'][i])
-                except (ValueError, TypeError):
-                    conf = -1.0
-                # confidence_threshold 为 0~1，tesseract conf 为 0~100
-                if conf >= confidence_threshold * 100 or conf < 0:
-                    texts.append(txt)
-            result_text = ' '.join(texts).strip()
-            return {"success": bool(result_text), "text": result_text}
-        except Exception as e:
-            print('[OCR] Tesseract 识别异常:', e)
-            return {"success": False, "text": ""}
-
-    # ---- 无可用后端 ----
-    return {"success": False, "text": "", "error": "无可用 OCR 后端"}
+    try:
+        return ocr_recognizer.recognize_text(frame, confidence_threshold=confidence_threshold)
+    except Exception as e:
+        print('[OCR] 识别异常:', e)
+        return {"success": False, "text": ""}
 
 
 def ocr_cleanup():
-    """清理 OCR 后端资源"""
-    if ocr_backend == 'paddleocr' and ocr_recognizer is not None:
+    """清理 OCR 资源"""
+    if ocr_recognizer is not None:
         try:
             ocr_recognizer.cleanup()
         except:
@@ -648,9 +572,9 @@ class OCRApp:
             hint = self.font_result.render('点击「识别」按钮开始', True, TEXT_DIM)
             self.screen.blit(hint, (text_x, text_y))
 
-        # 底部信息：OCR 后端 + 置信度 + 状态
+        # 底部信息：置信度 + 状态
         info = self.font_small.render(
-            '后端: %s  |  阈值: %.1f' % (ocr_backend_name, OCR_CONFIDENCE),
+            '阈值: %.1f' % OCR_CONFIDENCE,
             True, TEXT_DIM)
         self.screen.blit(info, (panel_rect.x + 24, panel_rect.bottom - 56))
         info2 = self.font_small.render('状态: %s' % status_message, True, status_color)
@@ -733,9 +657,9 @@ class OCRApp:
         global recognized_text, stop_requested, status_message, status_color
         if is_recognizing or is_playing:
             return
-        if ocr_backend is None:
-            recognized_text = 'OCR 后端不可用。\n请安装 tesseract-ocr 与 pytesseract，\n或修复 ppocr_system 依赖后重试。'
-            status_message = 'OCR 后端不可用'
+        if ocr_recognizer is None:
+            recognized_text = 'OCR 初始化失败。\n请检查 ppocr_system 依赖后重试。'
+            status_message = 'OCR 不可用'
             status_color = STATUS_ERROR
             return
         if self.current_frame is None:
