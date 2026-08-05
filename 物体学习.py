@@ -1,650 +1,478 @@
 # -*- coding: utf-8 -*-
 """
-物体学习与识别程序（自包含版本，不依赖好搭 AI 派专有 SDK）
-================================================================
-参考：github.com/kerchak-wu/haoda_AIPad （好搭 AI 派范例 11.物体识别学习 / 12.物体识别）
-      以及 人脸学习.py 的工程结构与界面实现。
+物体学习程序 - 好搭AI派
+======================
+功能说明：
+  1. USB外接摄像头实时采集画面（由视觉系统 open_camera + capture_frame 管理）
+  2. 输入物体名称标签，将当前画面学习为该物体类别/样本
+  3. 同一物体可多次学习（多角度/多实例），增强识别鲁棒性
+  4. 界面显示摄像头画面、学习状态和已学习物体列表
+  5. 物体记录持久化到 JSON 文件，重启后自动加载并继续学习
+  6. 可选择删除已学习的物体记录（仅删应用层，不破坏视觉系统模型）
+  7. 提供 ObjectLearner 类，可供其他程序导入调用
 
-技术方案：
-  - 外接摄像头采集：OpenCV VideoCapture
-  - 物体特征：OpenCV ORB 特征点检测 + 描述子（二进制描述子，自带旋转/尺度不变性）
-  - 物体识别：ORB 描述子匹配（BFMatcher + 汉明距离 + 绝对距离阈值）+ RANSAC 单应性矩阵定位
-  - 界面：pygame，窗口 1920 x 1080，摄像头画面直接整合到主窗口
-  - 数据持久化：
-      object_data/object_db.json          —— 物体库 {id: {name, created_at, samples, roi_size, ...}}
-      object_data/descriptors/<id>_<n>.npy —— ORB 描述子（uint8, N×32）
-      object_data/keypoints/<id>_<n>.npy   —— 特征点坐标（float32, N×2，roi_size 坐标系）
-      object_data/images/<id>_<n>.png      —— 学习时保存的 ROI 样本图（PNG 无损）
+硬件接线：
+  - USB外接摄像头(/dev/video41 或 /dev/video40)
+  - 好搭AI派扩展板(ESP32)
+  注意：好搭AI派右下角开关需拨到左侧以启用外设接口。
 
-核心特性：
-  1. 学习物体：输入名称 -> 采集多帧 -> 提取中心 ROI 的 ORB 特征 -> 分配物体 ID -> 保存
-  2. 物体识别：实时提取整帧 ORB 特征并与库中各类物体匹配，匹配数超过阈值即识别成功
-  3. 查看物体库：弹窗分页查看所有物体的 ID、名称、登记时间、样本数
-  4. 删除物体：列表中点击「删除」可移除库中已有信息（含二次确认）
-  5. 程序关闭后，其他程序可直接 import 本模块调用物体数据实现识别
+依赖库：
+  pygame, cv2(opencv, 仅用于图像格式转换), numpy, ESP32,
+  camera_vision_system_v3(好搭AI派自带)
 
-识别原理：
-  ORB（Oriented FAST and Rotated BRIEF）是 OpenCV 内置的快速特征检测/描述算法，
-  对物体的纹理细节具有旋转不变性与一定的尺度不变性。学习时从画面中心 ROI 提取
-  ORB 特征并保存；识别时从整帧提取特征，用 BFMatcher 汉明距离 + 绝对距离阈值
-  （MATCH_DIST_THRESHOLD）筛选优质匹配，再用 RANSAC 单应性矩阵做几何一致性验证，
-  三重准则同时满足才判定识别成功：
-    1. 优质匹配数 >= GOOD_MATCH_THRESHOLD（排除特征点过少的随机匹配）
-    2. RANSAC 内点数 >= MIN_INLIERS（排除偶然匹配数量够但分布零散的情况）
-    3. RANSAC 内点比例 >= MIN_INLIER_RATIO（排除 good 数高但一致性差的误匹配）
-  满足后用 RANSAC 单应性矩阵投影 ROI 边角得到物体在画面中的位置框。
-  匹配采用绝对距离阈值而非 Lowe 比率测试：物体学习通常采集多帧静止物体，特征高度
-  相似，比率测试会因次近邻距离≈最近邻距离而失效；绝对距离阈值对多样本更鲁棒，
-  误匹配由 RANSAC 几何一致性进一步过滤。
-  适用于具有丰富纹理的物体（如带图案的卡片、标签、包装盒、玩具等）；纯色无纹理
-  物体特征点稀少，识别效果会下降。
+参考范例：
+  - 范例代码 5.11 物体识别学习（add_object_recognition_class / sample）
+  - 范例代码 5.12 物体识别（result_accessor 获取结果）
+  - 人脸学习.py（FaceLearner 类结构与持久化模式）
+  - 人脸识别灯效.py（视觉系统 open_camera + capture_frame + 后台检测线程模式）
 
-其他程序调用示例：
-    from 物体学习 import ObjectEngine, get_object_name, load_object_database, list_known_objects
+重要约束：
+  - 完全基于外接USB摄像头实时画面学习，不从 images 文件夹读取图片。
+  - 物体学习必须 open_camera + start_background_detection（add_object_recognition_sample
+    使用视觉系统当前捕获的帧），与人脸学习 learn_new_face(frame=...) 不同。
+  - 因此不能使用 cv2 VideoCapture，必须用 vision_system.capture_frame() 获取帧
+    用于界面显示，避免与视觉系统的 V4L2 设备冲突。
+  - 采集线程固定 0.15s 睡眠，frame_lock 保护 raw_frame 读写。
 
-    # 方式一：直接调用引擎做识别（推荐）
-    engine = ObjectEngine()
-    engine.load()
-    for box, obj_id, name, conf in engine.recognize(frame):
-        print(obj_id, name, conf)
-
-    # 方式二：根据物体 ID 查名称
-    name = get_object_name(obj_id)       # 未登记返回 None
-    db = load_object_database()          # 获取整个物体库
-    all_objs = list_known_objects()      # [(id, name), ...]
+模块调用示例：
+  from 物体学习 import ObjectLearner
+  learner = ObjectLearner()
+  learner.learn_current_frame('水杯')   # 用当前USB摄像头帧学习/添加样本
+  objects = learner.get_learned_objects()
+  learner.delete_object(0)
+  learner.close()
 """
 
-import os
-import sys
 import json
 import time
-import datetime
+import signal
 import threading
+import sys
 
+import pygame
+import cv2
 import numpy as np
 
-# GUI 依赖（仅使用 ObjectEngine 做识别时可有可无；运行主程序必须安装）
-try:
-    import pygame
-except Exception:  # pragma: no cover
-    pygame = None
+from ESP32 import *
+from camera_vision_system_v3 import create_vision_system_v3
 
-# ===========================================================================
-# 配置
-# ===========================================================================
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 把所有 print 输出同时写入 logs/ 目录下的日志文件，方便在好搭AI派上导出排查
+# 注意：
+#   1. 日志统一存到 logs/ 文件夹，避免散落在项目根目录
+#   2. 文件名含程序名+日期时间，不会覆盖上次的日志
+#   3. 用追加模式 'a'，同一程序多次运行追加到当天日志
+#   4. 用块缓冲(buffering=-1)而非行缓冲，避免后台检测线程高频写日志阻塞主循环
+import os as _os
+import datetime as _datetime
+_LOG_DIR = 'logs'
+if not _os.path.exists(_LOG_DIR):
+    try:
+        _os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = _os.path.join(
+    _LOG_DIR,
+    '物体学习_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+# 写入分隔标记，区分不同次运行
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
+
+
+# ===================== 配置 =====================
 WIDTH, HEIGHT = 1920, 1080
 
-# 外接摄像头节点：固定为 /dev/video41（优先）或 /dev/video40
-CAMERA_ID = -1  # 保留兼容，已不影响实际探测
+# 字体路径（好搭AI派系统字体）
+FONT_PATH = '/home/cxdz/jupyter/assets/PingFang_Regular.ttf'
+FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
+
+# 摄像头配置（视觉系统内部使用，这里仅用于显示与分辨率标注）
 CAMERA_W, CAMERA_H = 1280, 720
+CAM_DISP_W, CAM_DISP_H = 880, 660
 
-# 摄像头画面在主窗口中的显示尺寸
-CAM_DISP_W, CAM_DISP_H = 1100, 520
+# 物体记录持久化文件
+OBJECT_DATA_FILE = 'object_records.json'
 
-BG_IMAGE = os.path.join("images", "1.jpg")
-
-# 物体数据目录与文件
-OBJECT_DATA_DIR = "object_data"
-OBJECT_DB_FILE = os.path.join(OBJECT_DATA_DIR, "object_db.json")
-DESC_DIR = os.path.join(OBJECT_DATA_DIR, "descriptors")
-KP_DIR = os.path.join(OBJECT_DATA_DIR, "keypoints")
-OBJ_IMG_DIR = os.path.join(OBJECT_DATA_DIR, "images")
-
-# 识别参数
-GOOD_MATCH_THRESHOLD = 40      # 优质匹配数阈值，越大越严格（真实物通常 200+，无关画面 <20）
-MATCH_DIST_THRESHOLD = 50      # ORB 汉明距离阈值，小于此值视为优质匹配（经验值 50）
-MIN_INLIERS = 12               # RANSAC 最小内点数，低于此值视为误匹配（真实物通常 40+）
-MIN_INLIER_RATIO = 0.15        # RANSAC 内点比例阈值（inliers/good），低于此值视为误匹配
-DEDUP_DISTANCE = 24            # 描述子去重距离，小于此值视为重复特征（多帧学习去冗余）
-ORB_FEATURES = 800             # 每帧提取的 ORB 特征点上限
-
-# 学习参数
-LEARN_SAMPLES = 15             # 学习时采集的样本帧数
-LEARN_DURATION = 1.8           # 学习采集时长（秒）
-LEARN_ROI_FRAC = 0.60          # 学习 ROI 占画面比例（中心 60%）
-OBJ_SIZE = 360                 # ROI 归一化尺寸（像素，特征点坐标系统一）
-
-# 识别处理：整帧降采样宽度，加快 ORB 提取并使尺度与学习 ROI 更接近
-RECOG_PROC_W = 640
-
-# 模式
-MODE_LEARN = "learn"
-MODE_RECOGNIZE = "recognize"
-
-# 颜色
-WHITE = (255, 255, 255)
-TEXT_COLOR = (255, 255, 255)
-DIM_TEXT = (200, 200, 200)
-ACCENT = (86, 196, 255)
-ACCENT_DARK = (40, 130, 190)
-BTN_NORMAL = (255, 255, 255, 60)
-BTN_HOVER = (86, 196, 255, 180)
-PANEL_COLOR = (0, 0, 0, 130)
-INPUT_BG = (0, 0, 0, 150)
-SUCCESS = (130, 255, 170)
-WARN = (255, 200, 120)
-ERROR = (255, 120, 120)
-EXIT_RED = (235, 87, 87)
-OBJ_BOX_KNOWN = (130, 255, 170)
-OBJ_BOX_UNKNOWN = (255, 200, 120)
-GUIDE_COLOR = (86, 196, 255)
+# ---- 界面配色（浅色系）----
+BG_TOP = (135, 206, 235)        # 天空蓝
+BG_BOTTOM = (220, 240, 255)    # 浅蓝白
+PANEL_COLOR = (255, 255, 255)   # 白色面板
+PANEL_BORDER = (100, 149, 237)  # 矢车菊蓝
+TITLE_COLOR = (25, 60, 130)     # 深蓝
+TEXT_COLOR = (50, 50, 60)       # 深灰
+SUBTLE_COLOR = (120, 130, 150)  # 灰色
+ACCENT_COLOR = (255, 140, 0)    # 橙色
+SUCCESS_COLOR = (60, 180, 80)   # 绿色
+ERROR_COLOR = (220, 80, 80)     # 红色
+EXIT_COLOR = (220, 80, 80)
+EXIT_HOVER = (255, 100, 100)
+LEARN_COLOR = (60, 130, 255)
+LEARN_HOVER = (80, 150, 255)
+DEL_COLOR = (220, 80, 80)
+DEL_HOVER = (255, 100, 100)
+INPUT_BG = (240, 248, 255)
+INPUT_BORDER = (100, 149, 237)
+INPUT_ACTIVE_BORDER = (60, 130, 255)
 
 
-def _now_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ===================== 硬件初始化 =====================
+# 严格参照范例代码：ESP32 初始化 + 异常处理
+board = ESP32()
+_board_isstarted = board.start()
+if not _board_isstarted:
+    raise Exception("扩展板连接异常，请检查硬件")
 
 
-class _CameraProbeTimeout(Exception):
-    """探测摄像头时 SIGALRM 超时（用于打断卡在 select() 的 V4L2 设备）。"""
-    pass
+# ===================== ObjectLearner 物体学习器 =====================
+# 供其他程序调用的物体学习接口
+class ObjectLearner:
+    """物体学习器，封装视觉系统的物体识别学习功能
 
+    使用方式：
+        learn_current_frame(name)：用当前USB摄像头帧学习/添加样本
+          - 若该类别未创建，则先用 add_object_recognition_class 创建类别
+          - 若该类别已创建，则用 add_object_recognition_sample 添加样本
 
-# ===========================================================================
-# 物体引擎（核心：检测 / 学习 / 识别 / 持久化）
-# ===========================================================================
-class ObjectEngine:
-    """基于 OpenCV ORB 特征匹配的自包含物体识别引擎。
+    注意：物体学习必须 open_camera + start_background_detection，
+    因为 add_object_recognition_sample 使用视觉系统当前捕获的帧。
+    因此本类内部管理摄像头，不使用 cv2 VideoCapture。
 
-    物体数据保存到磁盘（JSON 数据库 + 描述子/特征点 npy + 样本图），程序关闭后
-    其他程序可重新加载用于识别。
+    其他程序可通过以下方式调用：
+        from 物体学习 import ObjectLearner
+        learner = ObjectLearner()
+        learner.learn_current_frame('水杯')
+        objects = learner.get_learned_objects()
+        learner.delete_object(0)
+        learner.close()
     """
 
-    def __init__(self, data_dir=OBJECT_DATA_DIR, threshold=GOOD_MATCH_THRESHOLD):
-        import cv2  # noqa: F401  确保导入
-        self.cv2 = cv2
-        self.data_dir = data_dir
-        self.db_path = os.path.join(data_dir, "object_db.json")
-        self.desc_dir = os.path.join(data_dir, "descriptors")
-        self.kp_dir = os.path.join(data_dir, "keypoints")
-        self.img_dir = os.path.join(data_dir, "images")
-        self.threshold = threshold
-        self.db = {}                 # {"id": {"name", "created_at", "samples", "desc_files", "kp_files", "sample_images"}}
-        self._detector = None
-        self._matcher = None
-        self._index = {}             # {id: {"desc": np.array, "kp": np.array}}
+    def __init__(self, width=1280, height=720):
         self._lock = threading.RLock()
-        self._init_detector()
-        self._init_matcher()
-        self.load()
+        self._learned_objects = []  # [{name, sample_count, first_learned, last_learned}, ...]
+        self._classes_created = set()  # 已调用 add_object_recognition_class 创建的类别名集合
 
-    # ---------- 初始化 ----------
-    def _init_detector(self):
-        cv2 = self.cv2
-        try:
-            self._detector = cv2.ORB_create(nfeatures=ORB_FEATURES, scaleFactor=1.2, nlevels=8)
-        except Exception:
-            try:
-                self._detector = cv2.ORB_create(nfeatures=ORB_FEATURES)
-            except Exception:
-                self._detector = None
+        # 加载持久化记录
+        self._load_records()
 
-    def _init_matcher(self):
-        cv2 = self.cv2
-        # ORB 是二进制描述子，使用汉明距离；crossCheck=False 配合 match() + 绝对距离阈值
-        try:
-            self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        except Exception:
-            self._matcher = None
+        # 创建视觉系统并启动后台检测（严格参照范例 5.11）
+        self._init_vision_system(width, height)
 
-    # ---------- 加载 / 保存 ----------
-    def load(self):
-        """加载物体库 JSON 并重建内存索引；若无数据则空库运行。"""
-        with self._lock:
-            self.db = {}
-            if os.path.exists(self.db_path):
-                try:
-                    with open(self.db_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    self.db = data.get("objects", {})
-                except Exception:
-                    self.db = {}
-            self._rebuild_index_locked()
+        # 启动后台采集线程（用于界面显示，不影响后台检测）
+        self._raw_frame = None
+        self._frame_lock = threading.Lock()
+        self._capture_running = True
+        threading.Thread(target=self._capture_loop, daemon=True).start()
 
-    def _save_db_locked(self):
-        os.makedirs(self.data_dir, exist_ok=True)
-        with open(self.db_path, "w", encoding="utf-8") as f:
-            json.dump({"objects": self.db}, f, ensure_ascii=False, indent=2)
+    def _init_vision_system(self, width=1280, height=720):
+        """创建并初始化视觉系统（严格参照范例代码 5.11）
 
-    # ---------- 内存索引重建 ----------
-    def _rebuild_index_locked(self):
-        """把每类物体的所有样本描述子/特征点拼接成单数组，并去除高度重复的描述子。
-
-        多帧学习静止物体时，各帧特征高度相似，直接拼接会导致库内大量冗余描述子，
-        既拖慢匹配又增加与无关画面的随机匹配概率。去重逻辑：用 BFMatcher 对合并后
-        的描述子做 knnMatch(k=2)，每个描述子的次近邻（最近邻是自身）距离若小于
-        DEDUP_DISTANCE，则视为重复并删除其一。
+        流程：create_vision_system_v3 → 启用 object_recognition → _init_detectors
+              → open_camera → start_background_detection(show_preview=False)
         """
-        cv2 = self.cv2
-        self._index = {}
-        for fid, info in self.db.items():
-            all_desc = []
-            all_kp = []
-            desc_files = info.get("desc_files", [])
-            kp_files = info.get("kp_files", [])
-            for p_desc, p_kp in zip(desc_files, kp_files):
-                if not (os.path.exists(p_desc) and os.path.exists(p_kp)):
-                    continue
-                try:
-                    desc = np.load(p_desc)
-                    kp = np.load(p_kp)
-                except Exception:
-                    continue
-                if desc is None or len(desc) == 0 or kp is None or len(kp) == 0:
-                    continue
-                if desc.shape[0] != kp.shape[0]:
-                    continue
-                all_desc.append(desc)
-                all_kp.append(kp)
-            if not all_desc:
-                continue
-            desc_arr = np.concatenate(all_desc, axis=0)
-            kp_arr = np.concatenate(all_kp, axis=0)
-            # 去重：多帧静止物体特征高度相似，删除与已有描述子距离过近的副本
-            desc_arr, kp_arr = self._dedup_descriptors(desc_arr, kp_arr)
-            if len(desc_arr) == 0:
-                continue
-            # roi_size 为学习 ROI 缩放后的尺寸 (w, h)，用于 RANSAC 投影边角
-            rs = info.get("roi_size")
-            if not rs or len(rs) != 2:
-                rs = [OBJ_SIZE, OBJ_SIZE]
-            self._index[fid] = {
-                "desc": desc_arr,
-                "kp": kp_arr,
-                "roi_size": (int(rs[0]), int(rs[1])),
-            }
+        self.vision_system = create_vision_system_v3(
+            camera_id=-1, width=width, height=height,
+            enable_basic=False, enable_advanced=False
+        )
+        self.vision_system.detection_config.enable_object_recognition = True
+        self.vision_system._init_detectors()
+        print('object_recognition 算法已启用')
 
-    def _dedup_descriptors(self, desc, kp):
-        """去除高度相似的描述子，返回去重后的 (desc, kp)。
-
-        用 BFMatcher.knnMatch(k=2) 在描述子集合内部找最近邻：每个描述子的最近邻是
-        自身（距离 0），次近邻是最近的其它描述子。若次近邻距离 < DEDUP_DISTANCE，
-        说明存在重复，保留先出现的那一个。
-        """
-        cv2 = self.cv2
-        n = len(desc)
-        if n < 2 or self._matcher is None:
-            return desc, kp
-        try:
-            matches = self._matcher.knnMatch(desc, desc, k=2)
-        except Exception:
-            return desc, kp
-        keep = []
-        removed = set()
-        for i, pair in enumerate(matches):
-            if i in removed:
-                continue
-            keep.append(i)
-            if len(pair) < 2:
-                continue
-            nn = pair[1]  # 次近邻（最近邻是自身）
-            if nn.distance < DEDUP_DISTANCE:
-                removed.add(nn.trainIdx)  # 标记重复项删除
-        return desc[keep], kp[keep]
-
-    # ---------- 特征提取（学习用：中心 ROI） ----------
-    def _extract_roi_features(self, frame):
-        """从画面中心 ROI 提取 ORB 特征（保持纵横比缩放，与识别时坐标系一致）。
-
-        Returns:
-            (desc, kp_pts, roi_img, roi_rect, roi_size)
-            - desc: np.array (N, 32) uint8，无特征时为 None
-            - kp_pts: np.array (N, 2) float32，特征点坐标（roi_size 坐标系）
-            - roi_img: ROI 保持纵横比缩放后的 BGR 图像（用于保存样本图）
-            - roi_rect: (x, y, w, h) 原始帧坐标系中的 ROI 矩形
-            - roi_size: (w, h) 缩放后 ROI 图像的尺寸（较长边为 OBJ_SIZE）
-
-        说明：学习 ROI 缩放必须保持纵横比，与识别时整帧按宽度 RECOG_PROC_W
-        等比缩放的逻辑一致，否则特征点相对位置会发生形变导致匹配失败。
-        """
-        cv2 = self.cv2
-        if frame is None or self._detector is None:
-            return None, None, None, None, None
-        h, w = frame.shape[:2]
-        roi_w = int(w * LEARN_ROI_FRAC)
-        roi_h = int(h * LEARN_ROI_FRAC)
-        rx = (w - roi_w) // 2
-        ry = (h - roi_h) // 2
-        roi = frame[ry:ry + roi_h, rx:rx + roi_w]
-        # 保持纵横比：较长边缩放到 OBJ_SIZE，另一边按比例
-        if roi_w >= roi_h:
-            out_w = OBJ_SIZE
-            out_h = max(1, int(round(roi_h * OBJ_SIZE / float(roi_w))))
+        # 打开摄像头（必须，add_object_recognition_sample 需要当前帧）
+        print('正在打开视觉系统摄像头...')
+        self.camera_ok = False
+        if self.vision_system.open_camera():
+            print('视觉系统摄像头已打开')
+            self.camera_ok = True
         else:
-            out_h = OBJ_SIZE
-            out_w = max(1, int(round(roi_w * OBJ_SIZE / float(roi_h))))
-        roi_img = cv2.resize(roi, (out_w, out_h), interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-        kp, desc = self._detector.detectAndCompute(gray, None)
-        if desc is None or len(desc) == 0:
-            return None, None, roi_img, (rx, ry, roi_w, roi_h), (out_w, out_h)
-        kp_pts = np.array([k.pt for k in kp], dtype=np.float32)
-        return desc, kp_pts, roi_img, (rx, ry, roi_w, roi_h), (out_w, out_h)
+            print('摄像头打开失败，请检查 /dev/video41 和 /dev/video40')
+            return
 
-    @staticmethod
-    def learn_roi_rect(frame_w, frame_h):
-        """计算学习 ROI 在原始帧中的矩形（供界面绘制引导框使用）。"""
-        rw = int(frame_w * LEARN_ROI_FRAC)
-        rh = int(frame_h * LEARN_ROI_FRAC)
-        return ((frame_w - rw) // 2, (frame_h - rh) // 2, rw, rh)
+        # 启动后台检测（show_preview=False，不弹 OpenCV 窗口）
+        self.vision_system.threaded_system.start_background_detection(show_preview=False)
+        print('物体识别后台检测已启动')
 
-    # ---------- 学习 ----------
-    def learn_object(self, frames, name):
-        """从多帧图像学习一个新物体，分配新 ID 并保存。
+        # 调试：列出可用方法，便于排查
+        try:
+            vs_methods = [m for m in dir(self.vision_system) if not m.startswith('_')]
+            ra_methods = [m for m in dir(self.vision_system.result_accessor) if not m.startswith('_')]
+            print('[调试] vision_system 方法: %s' % vs_methods)
+            print('[调试] result_accessor 方法: %s' % ra_methods)
+        except Exception as e:
+            print('[调试] 列举方法失败:', e)
+
+    def _capture_loop(self):
+        """后台采集线程：调用 capture_frame() 获取帧用于界面显示
+
+        关键改进（参考人脸识别灯效.py 已验证模式）：
+        1. 0.05s 睡眠 ≈ 20fps 采集，保证画面流畅
+        2. 帧有效性验证，跳过损坏帧
+        3. capture_frame() 只读缓存，不访问 V4L2，与后台检测线程不冲突
+        """
+        # 启动后等待 0.5s 让后台检测线程先稳定
+        time.sleep(0.5)
+        while self._capture_running:
+            if not self.camera_ok:
+                time.sleep(0.3)
+                continue
+            try:
+                frame = self.vision_system.capture_frame()
+                if frame is not None and hasattr(frame, 'shape') and len(frame.shape) == 3:
+                    with self._frame_lock:
+                        self._raw_frame = frame
+            except Exception as e:
+                if self._capture_running:
+                    print('采集帧异常:', e)
+            # 0.05s 睡眠 ≈ 20fps 采集，提升画面流畅度
+            # capture_frame() 只读缓存不访问 V4L2，与后台检测线程不冲突
+            time.sleep(0.05)
+
+    def get_current_frame(self):
+        """获取当前摄像头帧的副本（线程安全）"""
+        with self._frame_lock:
+            return self._raw_frame.copy() if self._raw_frame is not None else None
+
+    # ---- 持久化 ----
+    def _load_records(self):
+        """从 JSON 文件加载已学习的物体记录"""
+        try:
+            with open(OBJECT_DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            with self._lock:
+                self._learned_objects = []
+                for item in data:
+                    self._learned_objects.append({
+                        'name': item['name'],
+                        'sample_count': item.get('sample_count', 0),
+                        'first_learned': item.get('first_learned', ''),
+                        'last_learned': item.get('last_learned', ''),
+                    })
+                    # 视觉系统内部类别会跨重启保留，所以已记录的类别视为已创建
+                    self._classes_created.add(item['name'])
+            print('已加载 %d 条物体记录' % len(self._learned_objects))
+        except FileNotFoundError:
+            print('无物体记录文件，从零开始')
+        except Exception as e:
+            print('加载物体记录失败:', e)
+
+    def _save_records(self):
+        """保存物体记录到 JSON 文件"""
+        try:
+            with self._lock:
+                data = [
+                    {
+                        'name': obj['name'],
+                        'sample_count': obj['sample_count'],
+                        'first_learned': obj['first_learned'],
+                        'last_learned': obj['last_learned'],
+                    }
+                    for obj in self._learned_objects
+                ]
+            with open(OBJECT_DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print('已保存 %d 条物体记录' % len(data))
+        except Exception as e:
+            print('保存物体记录失败:', e)
+
+    # ---- 学习 ----
+    def learn_current_frame(self, name):
+        """用当前摄像头帧学习物体
+
+        流程（严格参照范例 5.11）：
+          - 若 name 是新类别：调用 add_object_recognition_class(frame=current_frame, class_name=name)
+            创建类别，并记录 sample_count=1
+          - 若 name 是已创建类别：调用 add_object_recognition_sample(class_name=name)
+            添加样本，sample_count+=1
 
         Args:
-            frames: 图像帧列表（BGR ndarray）
-            name:   物体名称
+            name: 物体类别名（应用层维护，如 '水杯'）
+
         Returns:
-            新分配的物体 ID（int），若无有效特征返回 None
+            dict/str: 学习结果信息（视觉系统返回值），失败返回 None
+        """
+        if not name:
+            return None
+        try:
+            with self._lock:
+                is_new_class = name not in self._classes_created
+
+            if is_new_class:
+                # 新类别：用当前帧创建类别
+                frame = self.get_current_frame()
+                if frame is None:
+                    print('学习失败：当前无可用帧')
+                    return None
+                result = self.vision_system.add_object_recognition_class(
+                    frame=frame, class_name=name
+                )
+                print('创建物体类别 [%s] 结果：%s' % (name, str(result)))
+                with self._lock:
+                    self._classes_created.add(name)
+                    # 查找是否已有同名记录（可能 JSON 丢失但 classes_created 重建）
+                    existing = None
+                    for obj in self._learned_objects:
+                        if obj['name'] == name:
+                            existing = obj
+                            break
+                    now = time.strftime('%Y-%m-%d %H:%M:%S')
+                    if existing is None:
+                        self._learned_objects.append({
+                            'name': name,
+                            'sample_count': 1,
+                            'first_learned': now,
+                            'last_learned': now,
+                        })
+                    else:
+                        existing['sample_count'] = existing.get('sample_count', 0) + 1
+                        existing['last_learned'] = now
+                self._save_records()
+                return result
+            else:
+                # 已有类别：添加样本（视觉系统使用当前捕获的帧）
+                result = self.vision_system.add_object_recognition_sample(
+                    class_name=name
+                )
+                print('添加物体样本 [%s] 结果：%s' % (name, str(result)))
+                with self._lock:
+                    for obj in self._learned_objects:
+                        if obj['name'] == name:
+                            obj['sample_count'] = obj.get('sample_count', 0) + 1
+                            obj['last_learned'] = time.strftime('%Y-%m-%d %H:%M:%S')
+                            break
+                self._save_records()
+                return result
+        except Exception as e:
+            print('物体学习异常:', e)
+            return None
+
+    # ---- 删除 ----
+    def delete_object(self, index):
+        """删除指定索引的物体记录
+
+        注意：仅删除应用层记录（object_records.json），不调用视觉系统的删除接口。
+        与人脸学习类似，视觉系统内部数据保留不影响识别模型（避免 delete 类接口
+        破坏模型导致识别功能完全失效）。
+
+        Args:
+            index: 物体记录索引（从 0 开始）
+
+        Returns:
+            bool: 删除成功返回 True，索引无效返回 False
         """
         with self._lock:
-            descs, kps, imgs = [], [], []
-            roi_size = None  # (w, h) 缩放后 ROI 尺寸，所有帧应一致，取首个有效帧
-            for frame in frames:
-                if frame is None:
-                    continue
-                desc, kp_pts, roi_img, _, rs = self._extract_roi_features(frame)
-                if desc is not None and len(desc) > 0:
-                    descs.append(desc)
-                    kps.append(kp_pts)
-                    if roi_img is not None:
-                        imgs.append(roi_img)
-                    if roi_size is None and rs is not None:
-                        roi_size = rs
-            if not descs:
-                return None
+            if 0 <= index < len(self._learned_objects):
+                obj = self._learned_objects.pop(index)
+                self._save_records()
+                print('已删除应用层物体记录：%s（样本数 %d）' % (
+                    obj['name'], obj.get('sample_count', 0)))
+                print('注意：视觉系统内部数据保留，不影响识别模型')
+                return True
+            return False
 
-            new_id = self._next_id_locked()
-            fid = str(new_id)
-            os.makedirs(self.desc_dir, exist_ok=True)
-            os.makedirs(self.kp_dir, exist_ok=True)
-            os.makedirs(self.img_dir, exist_ok=True)
-            desc_files, kp_files, sample_images = [], [], []
-            for i, (desc, kp_pts) in enumerate(zip(descs, kps)):
-                dp = os.path.join(self.desc_dir, "{}_{}.npy".format(new_id, i))
-                kp_path = os.path.join(self.kp_dir, "{}_{}.npy".format(new_id, i))
-                try:
-                    np.save(dp, desc)
-                    np.save(kp_path, kp_pts)
-                except Exception as e:
-                    print("样本保存失败: {}".format(e))
-                    continue
-                desc_files.append(dp)
-                kp_files.append(kp_path)
-                img_path = os.path.join(self.img_dir, "{}_{}.png".format(new_id, i))
-                if i < len(imgs) and self.cv2.imwrite(img_path, imgs[i]):
-                    sample_images.append(img_path)
-            if not desc_files:
-                return None
-            if roi_size is None:
-                roi_size = (OBJ_SIZE, OBJ_SIZE)
-            self.db[fid] = {
-                "name": name,
-                "created_at": _now_str(),
-                "samples": len(desc_files),
-                "desc_files": desc_files,
-                "kp_files": kp_files,
-                "sample_images": sample_images,
-                "roi_size": [int(roi_size[0]), int(roi_size[1])],
-            }
-            self._save_db_locked()
-            self._rebuild_index_locked()
-            return new_id
+    # ---- 查询 ----
+    def get_learned_objects(self):
+        """获取已学习的物体列表
 
-    def _next_id_locked(self):
-        ids = [int(k) for k in self.db.keys() if str(k).isdigit()]
-        return (max(ids) + 1) if ids else 1
-
-    # ---------- 识别 ----------
-    def _compute_box(self, frame_shape, good_matches, kp_q, cat_kp, roi_size):
-        """根据优质匹配计算物体在帧中的位置框。
-
-        优先用 RANSAC 单应性矩阵投影学习 ROI 边角得到精确框；
-        退化时回退到优质匹配特征点的包围盒。
-        roi_size: 学习 ROI 缩放后的尺寸 (w, h)，用于投影边角。
+        Returns:
+            list of dict: 每个元素为 {name, sample_count, first_learned, last_learned}
         """
-        cv2 = self.cv2
-        h, w = frame_shape[:2]
-        rw, rh = roi_size
-        n = len(good_matches)
-        if n >= 8:
-            src = np.float32([cat_kp[m.trainIdx] for m in good_matches]).reshape(-1, 1, 2)
-            dst = np.float32([kp_q[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            try:
-                M, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
-            except Exception:
-                M, mask = None, None
-            if M is not None and mask is not None and int(mask.sum()) >= 6:
-                roi_corners = np.float32(
-                    [[0, 0], [rw, 0], [rw, rh], [0, rh]]
-                ).reshape(-1, 1, 2)
-                try:
-                    projected = cv2.perspectiveTransform(roi_corners, M)
-                except Exception:
-                    projected = None
-                if projected is not None:
-                    xs = projected[:, 0, 0]
-                    ys = projected[:, 0, 1]
-                    x1 = int(max(0, min(xs)))
-                    y1 = int(max(0, min(ys)))
-                    x2 = int(min(w, max(xs)))
-                    y2 = int(min(h, max(ys)))
-                    if x2 - x1 > 15 and y2 - y1 > 15:
-                        return (x1, y1, x2 - x1, y2 - y1)
-        if n > 0:
-            pts = np.float32([kp_q[m.queryIdx].pt for m in good_matches])
-            xs, ys = pts[:, 0], pts[:, 1]
-            x1 = int(max(0, xs.min()))
-            y1 = int(max(0, ys.min()))
-            x2 = int(min(w, xs.max()))
-            y2 = int(min(h, ys.max()))
-            return (x1, y1, max(1, x2 - x1), max(1, y2 - y1))
+        with self._lock:
+            return [dict(obj) for obj in self._learned_objects]
+
+    def get_object_count(self):
+        """获取已学习物体类别数量"""
+        with self._lock:
+            return len(self._learned_objects)
+
+    def find_by_name(self, name):
+        """根据类别名查找物体记录
+
+        Args:
+            name: 物体类别名
+
+        Returns:
+            dict: 物体记录，未找到返回 None
+        """
+        with self._lock:
+            for obj in self._learned_objects:
+                if obj['name'] == name:
+                    return dict(obj)
         return None
 
-    def recognize(self, frame):
-        """识别 frame 中最匹配的物体。
-
-        Returns:
-            [(box, object_id, name, confidence), ...]（取优质匹配最多的那一个物体）
-            - 已识别：object_id=int, name=str, confidence=0~1 浮点
-            - 未识别：返回空列表
-
-        匹配策略：用 BFMatcher.match() 取每个查询描述子的最近邻，再以绝对汉明距离
-        阈值 MATCH_DIST_THRESHOLD 过滤。相比 Lowe 比率测试，绝对距离阈值对「多帧
-        学习导致的特征重复」更鲁棒（比率测试在样本高度相似时会因次近邻距离≈最近
-        邻距离而失效）。误匹配由后续 RANSAC 单应性矩阵的几何一致性进一步过滤：
-        要求优质匹配数 >= GOOD_MATCH_THRESHOLD，且 RANSAC 内点数 >= MIN_INLIERS、
-        内点比例 >= MIN_INLIER_RATIO，三者同时满足才判定为识别成功。
-        """
-        cv2 = self.cv2
-        with self._lock:
-            results = []
-            if self._detector is None or self._matcher is None or frame is None or not self._index:
-                return results
-            h0, w0 = frame.shape[:2]
-            # 整帧降采样：加快 ORB 提取并使物体尺度与学习 ROI 更接近
-            scale = RECOG_PROC_W / float(w0) if w0 > 0 else 1.0
-            proc_w = RECOG_PROC_W
-            proc_h = max(1, int(h0 * scale))
-            small = cv2.resize(frame, (proc_w, proc_h), interpolation=cv2.INTER_AREA)
-            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            kp_q, desc_q = self._detector.detectAndCompute(gray, None)
-            if desc_q is None or len(desc_q) < 5:
-                return results
-
-            best = None  # (good_count, inlier_count, fid, good_matches)
-            for fid, idx in self._index.items():
-                desc_t = idx["desc"]
-                if desc_t is None or len(desc_t) < 5:
-                    continue
-                try:
-                    matches = self._matcher.match(desc_q, desc_t)
-                except Exception:
-                    continue
-                good = [m for m in matches if m.distance < MATCH_DIST_THRESHOLD]
-                if len(good) < self.threshold:
-                    continue
-                # RANSAC 几何验证：计算优质匹配中与单应性矩阵一致的内点数
-                inlier_count = 0
-                if len(good) >= 8:
-                    src = np.float32([idx['kp'][m.trainIdx] for m in good]).reshape(-1, 1, 2)
-                    dst = np.float32([kp_q[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-                    try:
-                        M, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
-                    except Exception:
-                        M, mask = None, None
-                    if mask is not None:
-                        inlier_count = int(mask.sum())
-                # 优先选 good 数多且 inlier 多的物体
-                if (best is None or
-                    len(good) > best[0] or
-                    (len(good) == best[0] and inlier_count > best[1])):
-                    best = (len(good), inlier_count, fid, good)
-
-            if best is not None:
-                good_count, inlier_count, fid, good = best
-                # 即使 good 数达标，inlier 过少或比例过低也视为误匹配
-                inlier_ratio = inlier_count / float(good_count) if good_count > 0 else 0.0
-                if inlier_count < MIN_INLIERS or inlier_ratio < MIN_INLIER_RATIO:
-                    return results
-                idx = self._index[fid]
-                cat_kp = idx["kp"]
-                roi_size = idx.get("roi_size", (OBJ_SIZE, OBJ_SIZE))
-                box_small = self._compute_box((proc_h, proc_w), good, kp_q, cat_kp, roi_size)
-                if box_small is not None:
-                    # 还原到原始帧坐标
-                    x, y, bw, bh = box_small
-                    box = (int(round(x / scale)),
-                           int(round(y / scale)),
-                           max(1, int(round(bw / scale))),
-                           max(1, int(round(bh / scale))))
-                else:
-                    box = None
-                name = self.db[fid]["name"]
-                # 置信度：优质匹配数相对于阈值线性映射，封顶 1.0
-                conf = min(1.0, good_count / float(self.threshold * 2.5))
-                results.append((box, int(fid), name, round(conf, 3)))
-            return results
-
-    # ---------- 删除 ----------
-    def delete_object(self, obj_id):
-        """删除指定 ID 的物体（含样本数据并重建索引）。返回是否删除成功。"""
-        with self._lock:
-            fid = str(obj_id)
-            if fid not in self.db:
-                return False
-            info = self.db[fid]
-            for p in (info.get("desc_files", []) + info.get("kp_files", [])
-                      + info.get("sample_images", [])):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-            del self.db[fid]
-            self._save_db_locked()
-            self._rebuild_index_locked()
-            return True
-
-    # ---------- 查询 ----------
-    def get_name(self, obj_id):
-        with self._lock:
-            info = self.db.get(str(obj_id))
-            return info["name"] if info else None
-
-    def list_objects(self):
-        """返回 [(id(int), info(dict)), ...]，按 ID 升序。"""
-        with self._lock:
-            items = [(int(k), v) for k, v in self.db.items() if str(k).isdigit()]
-        items.sort(key=lambda x: x[0])
-        return items
-
-    def count(self):
-        with self._lock:
-            return len(self.db)
+    # ---- 清理 ----
+    def close(self):
+        """释放视觉系统资源"""
+        self._capture_running = False
+        time.sleep(0.2)
+        try:
+            self.vision_system.cleanup()
+        except Exception:
+            pass
 
 
-# ===========================================================================
-# 对外 API（供其他程序直接 import 调用，无需启动界面）
-# ===========================================================================
-def load_object_database(path=OBJECT_DB_FILE):
-    """加载物体数据库，返回 {object_id(str): {name, created_at, samples, ...}}。"""
-    if not os.path.exists(path):
-        return {}
+# ===================== Pygame 界面工具 =====================
+def make_gradient_bg(width, height, top, bottom):
+    """生成垂直渐变背景"""
+    surf = pygame.Surface((width, height))
+    for y in range(height):
+        ratio = y / max(1, height - 1)
+        r = int(top[0] + (bottom[0] - top[0]) * ratio)
+        g = int(top[1] + (bottom[1] - top[1]) * ratio)
+        b = int(top[2] + (bottom[2] - top[2]) * ratio)
+        pygame.draw.line(surf, (r, g, b), (0, y), (width, y))
+    return surf
+
+
+def cvframe_to_surface(frame, target_w, target_h):
+    """BGR 帧 -> pygame Surface，并缩放到指定尺寸
+
+    使用 pygame.transform.scale（非 smoothscale）以降低 CPU 开销。
+    """
+    if frame is None:
+        return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("objects", {})
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        transposed = np.transpose(rgb, (1, 0, 2))
+        surf = pygame.surfarray.make_surface(transposed)
+        return pygame.transform.scale(surf, (target_w, target_h)).convert()
     except Exception:
-        return {}
-
-
-def get_object_name(obj_id, path=OBJECT_DB_FILE):
-    """根据物体 ID 获取名称，未登记返回 None。"""
-    objs = load_object_database(path)
-    info = objs.get(str(obj_id))
-    return info["name"] if info else None
-
-
-def list_known_objects(path=OBJECT_DB_FILE):
-    """返回所有已知物体列表 [(object_id, name), ...]。"""
-    objs = load_object_database(path)
-    items = [(int(k), v["name"]) for k, v in objs.items() if str(k).isdigit()]
-    items.sort(key=lambda x: x[0])
-    return items
-
-
-# ===========================================================================
-# GUI 通用工具
-# ===========================================================================
-def find_chinese_font():
-    """寻找系统中可用的中文字体。"""
-    import pygame
-    candidates = [
-        "simhei", "microsoftyahei", "msyh", "pingfang",
-        "notosanscjksc", "notosanscjk", "wenquanyimicrohei",
-        "wqymicrohei", "stheiti", "arialunicodems",
-    ]
-    available = pygame.font.get_fonts()
-    for name in candidates:
-        if name in available:
-            return name
-    paths = [
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return None
-
-
-def draw_text(surface, text, font, color, pos, anchor="topleft"):
-    surf = font.render(str(text), True, color)
-    rect = surf.get_rect(**{anchor: pos})
-    surface.blit(surf, rect)
-    return rect
-
-
-def draw_panel(surface, x, y, w, h, fill=PANEL_COLOR, border=ACCENT, radius=14, border_w=2):
-    panel = pygame.Surface((w, h), pygame.SRCALPHA)
-    panel.fill(fill)
-    surface.blit(panel, (x, y))
-    pygame.draw.rect(surface, border, (x, y, w, h), border_w, border_radius=radius)
+        return None
 
 
 class Button:
-    """通用按钮控件。"""
+    """通用圆角按钮"""
 
-    def __init__(self, rect, text, font, color=BTN_NORMAL, hover_color=BTN_HOVER,
-                 text_color=TEXT_COLOR):
+    def __init__(self, rect, text, color, hover_color, text_color=(255, 255, 255)):
         self.rect = pygame.Rect(rect)
         self.text = text
-        self.font = font
         self.color = color
         self.hover_color = hover_color
         self.text_color = text_color
@@ -654,919 +482,442 @@ class Button:
     def update(self, mouse_pos):
         self.hovered = self.enabled and self.rect.collidepoint(mouse_pos)
 
-    def draw(self, surface):
+    def draw(self, surf, font):
         if not self.enabled:
-            color = (80, 80, 80, 120)
-        elif self.hovered:
-            color = self.hover_color
+            c = (180, 180, 180)
         else:
-            color = self.color
-        btn_surf = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(btn_surf, color, btn_surf.get_rect(), border_radius=12)
-        pygame.draw.rect(btn_surf, ACCENT, btn_surf.get_rect(), 2, border_radius=12)
-        surface.blit(btn_surf, self.rect.topleft)
-        text_surf = self.font.render(self.text, True,
-                                     self.text_color if self.enabled else (150, 150, 150))
-        surface.blit(text_surf, text_surf.get_rect(center=self.rect.center))
+            c = self.hover_color if self.hovered else self.color
+        btn = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(btn, c, btn.get_rect(), border_radius=14)
+        pygame.draw.rect(btn, (255, 255, 255, 200), btn.get_rect(), 2, border_radius=14)
+        surf.blit(btn, self.rect.topleft)
+        label = font.render(self.text, True, self.text_color)
+        lr = label.get_rect(center=self.rect.center)
+        surf.blit(label, lr)
+
+    def clicked(self, pos):
+        return self.enabled and self.rect.collidepoint(pos)
 
 
-# ===========================================================================
-# 摄像头打开（MJPG + 超时 + 雪花检测）
-# ===========================================================================
-def _is_valid_frame(frame):
-    """判断帧是否为有效画面（非空、非全黑、非雪花噪声）。
+class SmallButton:
+    """小型按钮，用于列表项的删除等操作"""
 
-    雪花/随机噪声的特点：用 INTER_AREA 下采样后，相邻噪声相互抵消，
-    标准差急剧下降；真实画面有空间结构，下采样后保持高标准差。
+    def __init__(self, rect, text, color, hover_color, text_color=(255, 255, 255)):
+        self.rect = pygame.Rect(rect)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.text_color = text_color
+        self.hovered = False
+
+    def update(self, mouse_pos):
+        self.hovered = self.rect.collidepoint(mouse_pos)
+
+    def draw(self, surf, font):
+        c = self.hover_color if self.hovered else self.color
+        pygame.draw.rect(surf, c, self.rect, border_radius=6)
+        label = font.render(self.text, True, self.text_color)
+        lr = label.get_rect(center=self.rect.center)
+        surf.blit(label, lr)
+
+    def clicked(self, pos):
+        return self.rect.collidepoint(pos)
+
+
+class TextInput:
+    """简单的文本输入框，支持英文/数字输入"""
+
+    def __init__(self, rect, font, max_len=30):
+        self.rect = pygame.Rect(rect)
+        self.font = font
+        self.text = ''
+        self.active = False
+        self.max_len = max_len
+        self.cursor_visible = True
+        self.cursor_timer = 0
+
+    def set_active(self, pos):
+        """点击时激活/失活输入框"""
+        self.active = self.rect.collidepoint(pos)
+
+    def handle_key(self, event):
+        """处理键盘输入"""
+        if event.key == pygame.K_BACKSPACE:
+            self.text = self.text[:-1]
+        elif event.key == pygame.K_RETURN:
+            self.active = False
+        elif event.unicode and len(self.text) < self.max_len:
+            char = event.unicode
+            if char.isprintable():
+                self.text += char
+
+    def update(self):
+        """更新光标闪烁"""
+        self.cursor_timer += 1
+        if self.cursor_timer >= 30:
+            self.cursor_visible = not self.cursor_visible
+            self.cursor_timer = 0
+
+    def draw(self, surf, hint_text='请输入物体名称...'):
+        bg_color = INPUT_BG if self.active else (250, 250, 250)
+        pygame.draw.rect(surf, bg_color, self.rect, border_radius=8)
+        border_color = INPUT_ACTIVE_BORDER if self.active else INPUT_BORDER
+        pygame.draw.rect(surf, border_color, self.rect, 2, border_radius=8)
+
+        text_surf = self.font.render(self.text, True, TEXT_COLOR)
+        text_y = self.rect.centery - text_surf.get_height() // 2
+        surf.blit(text_surf, (self.rect.x + 12, text_y))
+
+        if self.active and self.cursor_visible:
+            cursor_x = self.rect.x + 12 + text_surf.get_width() + 2
+            pygame.draw.line(surf, TEXT_COLOR,
+                             (cursor_x, self.rect.y + 8),
+                             (cursor_x, self.rect.bottom - 8), 2)
+
+        if not self.text:
+            hint = self.font.render(hint_text, True, SUBTLE_COLOR)
+            surf.blit(hint, (self.rect.x + 12, text_y))
+
+
+# ===================== 主程序 =====================
+class ObjectLearnApp:
+    """物体学习 Pygame 界面应用
+
+    摄像头完全由视觉系统管理（open_camera + capture_frame），
+    不使用 cv2 VideoCapture，避免设备冲突。
+    学习流程严格参照范例代码 5.11。
     """
-    if frame is None or frame.size == 0:
-        return False
-    try:
-        std_orig = float(frame.std())
-        if std_orig < 5:                     # 全黑/全白/空缓冲
-            return False
-        small = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
-        std_small = float(small.std())
-        if std_orig > 20 and std_small / std_orig < 0.2:   # 雪花噪声
-            return False
-        return True
-    except Exception:
-        return False
 
+    TITLE_H = 130
+    FOOTER_H = 110
 
-def _try_open(cid, timeout=4):
-    """尝试以 MJPG 格式打开指定编号的摄像头并验证可读到有效帧。"""
-    import cv2
-    cap = None
-    use_alarm = (hasattr(signal, "SIGALRM")
-                 and threading.current_thread() is threading.main_thread())
-    old_handler = None
-    if use_alarm:
-        def _alarm(signum, frame):
-            raise _CameraProbeTimeout()
-        old_handler = signal.getsignal(signal.SIGALRM)
-        signal.signal(signal.SIGALRM, _alarm)
-        signal.alarm(timeout)
-    try:
-        device_path = "/dev/video{}".format(cid)
-        cap = cv2.VideoCapture(device_path)
-        if cap is None or not cap.isOpened():
-            return None
+    def __init__(self):
+        pygame.init()
+        pygame.font.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption('物体学习')
+        self.clock = pygame.time.Clock()
+
+        # 字体（适配 1920×1080：标题64、副标题32、列表项30、按钮34）
+        self.font_title = pygame.font.Font(FONT_BOLD_PATH, 64)
+        self.font_sub = pygame.font.Font(FONT_PATH, 32)
+        self.font_item = pygame.font.Font(FONT_PATH, 30)
+        self.font_btn = pygame.font.Font(FONT_BOLD_PATH, 34)
+        self.font_small = pygame.font.Font(FONT_PATH, 24)
+        self.font_status = pygame.font.Font(FONT_PATH, 26)
+        self.font_input = pygame.font.Font(FONT_PATH, 32)
+        self.font_del = pygame.font.Font(FONT_PATH, 22)
+
+        # 背景：优先加载图片，失败回退渐变
         try:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            bg_raw = pygame.image.load('images/1.jpg')
+            self.bg = pygame.transform.smoothscale(bg_raw, (WIDTH, HEIGHT)).convert()
         except Exception:
-            pass
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_W)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_H)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        for _ in range(20):
-            ok, frame = cap.read()
-            if ok and _is_valid_frame(frame):
-                return cap
-        try:
-            cap.release()
-        except Exception:
-            pass
-        return None
-    except _CameraProbeTimeout:
-        print("  /dev/video{} 探测超时（可能是元数据节点或损坏设备），跳过".format(cid))
-        if cap is not None:
-            try:
-                cap.release()
-            except Exception:
-                pass
-        return None
-    finally:
-        if use_alarm:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
+            self.bg = make_gradient_bg(WIDTH, HEIGHT, BG_TOP, BG_BOTTOM).convert()
 
+        # 布局：左右面板等高 820px
+        panel_h = HEIGHT - self.TITLE_H - 20 - self.FOOTER_H  # 820
+        self.cam_rect = pygame.Rect(60, self.TITLE_H + 20,
+                                    CAM_DISP_W + 40, panel_h)
+        self.info_rect = pygame.Rect(self.cam_rect.right + 40, self.TITLE_H + 20,
+                                     WIDTH - self.cam_rect.right - 40 - 60,
+                                     panel_h)
 
-def open_camera():
-    """摄像头固定为 /dev/video41（优先）或 /dev/video40。"""
-    import cv2  # noqa: F401  确保模块级 cv2 可用
-    for cid in (41, 40):
-        print("  探测 /dev/video{} ...".format(cid))
-        cap = _try_open(cid)
-        if cap is not None:
-            print("摄像头使用编号：{} (/dev/video{})".format(cid, cid))
-            return cap
-    return None
+        ix = self.info_rect.x + 30
+        iw = self.info_rect.w - 60
 
+        # 物体名称输入框
+        self.name_input = TextInput(
+            (ix, self.info_rect.y + 70, iw, 70),
+            self.font_input
+        )
 
-# ===========================================================================
-# 主程序
-# ===========================================================================
-def main():
-    global pygame, cv2
-    import pygame
-    import cv2
-    import signal
+        # 学习按钮
+        btn_y = self.name_input.rect.bottom + 25
+        self.btn_learn = Button((ix, btn_y, iw, 70),
+                                '学习物体', LEARN_COLOR, LEARN_HOVER)
 
-    pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("物体学习与识别系统")
-    clock = pygame.time.Clock()
+        # 退出按钮（右上角标题栏内，固定 240×70）
+        self.btn_exit = Button((WIDTH - 280, 30, 240, 70),
+                               '退出程序', EXIT_COLOR, EXIT_HOVER)
 
-    font_name = find_chinese_font()
-    font_title = pygame.font.SysFont(font_name, 48, bold=True)
-    font_subtitle = pygame.font.SysFont(font_name, 32, bold=True)
-    font_label = pygame.font.SysFont(font_name, 28)
-    font_input = pygame.font.SysFont(font_name, 30)
-    font_btn = pygame.font.SysFont(font_name, 26, bold=True)
-    font_msg = pygame.font.SysFont(font_name, 26)
-    font_small = pygame.font.SysFont(font_name, 22)
-    font_exit = pygame.font.SysFont(font_name, 24, bold=True)
-    font_big_result = pygame.font.SysFont(font_name, 42, bold=True)
-    font_box = pygame.font.SysFont(font_name, 24, bold=True)
+        # 初始化物体学习器（视觉系统初始化 + 摄像头打开 + 后台检测）
+        print('正在初始化物体识别系统...')
+        self.learner = ObjectLearner()
 
-    # 背景图片
-    background = None
-    if os.path.exists(BG_IMAGE):
-        try:
-            bg = pygame.image.load(BG_IMAGE)
-            background = pygame.transform.smoothscale(bg, (WIDTH, HEIGHT)).convert()
-        except Exception as e:
-            print("背景加载失败: {}".format(e))
+        # 状态
+        self.running = True
+        self.status_msg = '请输入物体名称并对准摄像头，然后点击「学习物体」'
+        self.status_color = SUBTLE_COLOR
 
-    # ----- 初始化物体引擎 -----
-    print("物体引擎初始化中...")
-    engine = ObjectEngine()
-    print("物体库已加载：共 {} 个物体".format(engine.count()))
+        # 列表项 rect 列表（每帧更新，用于点击检测）
+        self.object_delete_rects = []
+        self.object_name_rects = []  # [(name_rect, name), ...] 点击回填名称
 
-    # ----- 打开摄像头 -----
-    print("外接摄像头打开中...")
-    cap = open_camera()
-    camera_ok = cap is not None and cap.isOpened()
-    if camera_ok:
-        print("外接摄像头已打开")
-    else:
-        print("摄像头打开失败，请检查 /dev/video41 和 /dev/video40 是否存在且未被占用")
+    def set_status(self, msg, color=SUBTLE_COLOR):
+        self.status_msg = msg
+        self.status_color = color
 
-    # =============================================================
-    # 布局参数
-    # =============================================================
-    TITLE_Y = 12
-    EXIT_BTN_Y = 12
-    MODE_BTN_Y = 75
-
-    panel_x, panel_y = 60, 145
-    panel_w, panel_h = 1180, 850
-
-    cam_x = panel_x + 40                    # 100
-    cam_y = panel_y + 105                   # 250
-
-    below_cam_y = cam_y + CAM_DISP_H + 20   # 790
-    below_cam_h = panel_y + panel_h - below_cam_y - 15
-
-    rtop_x, rtop_y = 1280, 145
-    rtop_w, rtop_h = 580, 240
-
-    view_btn_y = 400
-
-    side_x, side_y = 1280, 470
-    side_w, side_h = 580, 525
-
-    TOAST_Y = 1005
-    HINT_Y = 1055
-
-    DETAIL_PAGE_SIZE = 8
-
-    # =============================================================
-    # 状态变量
-    # =============================================================
-    mode = MODE_LEARN
-    name_input = ""
-    input_active = False
-    learning = False
-    learn_lock = threading.Lock()
-    learn_status = ""
-    learn_status_color = DIM_TEXT
-
-    recog_history = []
-    last_recog_id = None
-    recog_cooldown = 0
-    RECOG_COOLDOWN_FRAMES = 30
-
-    show_obj_detail = False
-    detail_page = 0
-
-    delete_confirm_id = None
-    delete_status = ""
-    delete_status_color = DIM_TEXT
-    delete_status_timer = 0
-
-    obj_list_scroll = 0
-    force_refresh_list = False
-
-    # =============================================================
-    # 摄像头后台采集线程
-    # =============================================================
-    latest_frame = None
-    frame_lock = threading.Lock()
-    cam_thread_running = True
-
-    # 识别后台线程结果
-    latest_recog = []          # [(box, obj_id, name, conf), ...]
-    recog_lock = threading.Lock()
-    recog_thread_running = True
-
-    def cvframe_to_surface(frame):
-        if frame is None:
-            return None
-        try:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_transposed = np.transpose(frame_rgb, (1, 0, 2))
-            surface = pygame.surfarray.make_surface(frame_transposed)
-            return pygame.transform.smoothscale(surface, (CAM_DISP_W, CAM_DISP_H))
-        except Exception:
-            return None
-
-    def camera_capture_loop():
-        nonlocal latest_frame
-        fail_count = 0
-        while cam_thread_running:
-            if not camera_ok or cap is None:
-                time.sleep(0.2)
-                continue
-            try:
-                ok, frame = cap.read()
-                if ok and _is_valid_frame(frame):
-                    with frame_lock:
-                        latest_frame = frame
-                    fail_count = 0
-                else:
-                    fail_count += 1
-                    if fail_count > 5:
-                        time.sleep(0.1)
-            except Exception as e:
-                fail_count += 1
-                if fail_count == 1:
-                    print("摄像头采集异常: {}".format(e))
-                time.sleep(0.05)
-            time.sleep(0.03)
-
-    def recognition_loop():
-        """后台识别物体，结果供主循环绘制。"""
-        nonlocal latest_recog
-        while recog_thread_running:
-            if mode != MODE_RECOGNIZE or not camera_ok:
-                time.sleep(0.1)
-                continue
-            with frame_lock:
-                frame = latest_frame
-            if frame is None:
-                time.sleep(0.05)
-                continue
-            try:
-                results = engine.recognize(frame)
-                with recog_lock:
-                    latest_recog = results
-            except Exception as e:
-                print("识别异常: {}".format(e))
-            time.sleep(0.1)
-
-    cam_thread = threading.Thread(target=camera_capture_loop, daemon=True)
-    cam_thread.start()
-    recog_thread = threading.Thread(target=recognition_loop, daemon=True)
-    recog_thread.start()
-
-    # =============================================================
-    # 物体学习
-    # =============================================================
-    def start_learn():
-        nonlocal learning, learn_status, learn_status_color
-        name = name_input.strip()
+    def handle_learn(self):
+        """处理学习物体按钮点击"""
+        name = self.name_input.text.strip()
         if not name:
-            learn_status = "请先输入物体名称"
-            learn_status_color = WARN
+            self.set_status('请先输入物体名称', ERROR_COLOR)
             return
-        if not camera_ok:
-            learn_status = "摄像头未打开，无法学习"
-            learn_status_color = ERROR
+        if not self.learner.camera_ok:
+            self.set_status('摄像头未就绪，无法学习', ERROR_COLOR)
             return
-        with learn_lock:
-            if learning:
-                return
-            learning = True
-        learn_status = "正在学习物体，请将物体放在画面中央保持不动..."
-        learn_status_color = WARN
-
-        def worker():
-            nonlocal learning, learn_status, learn_status_color
-            try:
-                frames = []
-                t0 = time.time()
-                while time.time() - t0 < LEARN_DURATION and len(frames) < LEARN_SAMPLES * 2:
-                    with frame_lock:
-                        f = latest_frame
-                    if f is not None:
-                        frames.append(f.copy())
-                    time.sleep(LEARN_DURATION / LEARN_SAMPLES)
-                if not frames:
-                    learn_status = "采集失败，未获取到摄像头画面"
-                    learn_status_color = ERROR
-                    return
-                obj_id = engine.learn_object(frames, name)
-                if obj_id is None:
-                    learn_status = "学习失败，未提取到有效特征，请将带纹理的物体放在引导框内重试"
-                    learn_status_color = ERROR
-                else:
-                    learn_status = "学习成功！ID={}  名称={}".format(obj_id, name)
-                    learn_status_color = SUCCESS
-                    print("物体学习成功：ID={} 名称={}".format(obj_id, name))
-            except Exception as e:
-                learn_status = "学习异常：{}".format(e)
-                learn_status_color = ERROR
-            finally:
-                with learn_lock:
-                    learning = False
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    # =============================================================
-    # 删除物体
-    # =============================================================
-    def delete_object(obj_id):
-        nonlocal delete_status, delete_status_color, delete_status_timer, force_refresh_list
-        name = engine.get_name(obj_id)
-        ok = engine.delete_object(obj_id)
-        if ok:
-            delete_status = "已删除：ID={}  名称={}".format(obj_id, name)
-            delete_status_color = SUCCESS
-            print("物体已删除：ID={} 名称={}".format(obj_id, name))
+        self.set_status('正在学习...', ACCENT_COLOR)
+        # 在主线程中执行学习（避免多线程并发访问视觉系统）
+        result = self.learner.learn_current_frame(name)
+        if result is None:
+            self.set_status('学习失败，请确保画面中有清晰物体', ERROR_COLOR)
         else:
-            delete_status = "未找到 ID={} 的物体".format(obj_id)
-            delete_status_color = ERROR
-        delete_status_timer = 180
-        force_refresh_list = True
+            obj = self.learner.find_by_name(name)
+            sample_count = obj.get('sample_count', 0) if obj else 0
+            total = self.learner.get_object_count()
+            self.set_status('学习成功：%s（样本 %d，累计 %d 个类别）' % (
+                name, sample_count, total), SUCCESS_COLOR)
+            self.name_input.text = ''
 
-    # =============================================================
-    # 按钮定义
-    # =============================================================
-    btn_learn_mode = Button((640, MODE_BTN_Y, 260, 52), "学习物体", font_btn)
-    btn_recog_mode = Button((1000, MODE_BTN_Y, 260, 52), "物体识别", font_btn)
-    btn_start_learn = Button((rtop_x + 20, rtop_y + 155, rtop_w - 40, 50), "开始学习物体", font_btn,
-                             color=(86, 196, 255, 120), hover_color=(86, 196, 255, 220))
-    btn_exit = Button((1740, EXIT_BTN_Y, 140, 48), "退出程序", font_exit,
-                      color=(235, 87, 87, 120), hover_color=(235, 87, 87, 220))
-    btn_view_objs = Button((side_x, view_btn_y, side_w, 50), "查看物体库详细信息", font_btn,
-                           color=(130, 255, 170, 120), hover_color=(130, 255, 170, 220))
+    def handle_delete_object(self, index):
+        """处理删除物体记录"""
+        objects = self.learner.get_learned_objects()
+        if 0 <= index < len(objects):
+            name = objects[index]['name']
+            self.learner.delete_object(index)
+            self.set_status('已删除：%s（累计 %d 个类别）' % (
+                name, self.learner.get_object_count()), ACCENT_COLOR)
 
-    btn_close_detail = Button((WIDTH // 2 + 500, 160, 100, 48), "关闭", font_btn,
-                              color=(235, 87, 87, 120), hover_color=(235, 87, 87, 220))
-    btn_detail_prev = Button((WIDTH // 2 - 150, HEIGHT - 100, 130, 48), "上一页", font_btn)
-    btn_detail_next = Button((WIDTH // 2 + 20, HEIGHT - 100, 130, 48), "下一页", font_btn)
+    def draw_title(self):
+        """绘制顶部标题栏"""
+        mask = pygame.Surface((WIDTH, self.TITLE_H), pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 180), mask.get_rect())
+        self.screen.blit(mask, (0, 0))
 
-    btn_confirm_delete = Button((WIDTH // 2 - 210, HEIGHT // 2 + 40, 180, 55), "确认删除", font_btn,
-                                color=(235, 87, 87, 150), hover_color=(235, 87, 87, 220))
-    btn_cancel_delete = Button((WIDTH // 2 + 30, HEIGHT // 2 + 40, 180, 55), "取消", font_btn)
+        title = self.font_title.render('物体学习', True, TITLE_COLOR)
+        self.screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 25))
+        sub = self.font_sub.render(
+            'USB摄像头采集画面  ·  输入名称后点击学习  ·  同一物体可多次学习增强识别',
+            True, SUBTLE_COLOR)
+        self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, 90))
 
-    input_rect = pygame.Rect(rtop_x + 20, rtop_y + 80, rtop_w - 40, 50)
-    delete_btn_rects = []
+        # 退出按钮（右上角）
+        self.btn_exit.draw(self.screen, self.font_btn)
 
-    # =============================================================
-    # 主循环
-    # =============================================================
-    running = True
-    while running:
+    def draw_camera(self):
+        """绘制摄像头画面区域"""
+        panel = pygame.Surface(self.cam_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(panel, (*PANEL_COLOR, 170), panel.get_rect(), border_radius=18)
+        pygame.draw.rect(panel, PANEL_BORDER, panel.get_rect(), 2, border_radius=18)
+        self.screen.blit(panel, self.cam_rect.topleft)
+
+        head = self.font_sub.render('摄像头画面', True, TITLE_COLOR)
+        self.screen.blit(head, (self.cam_rect.x + 20, self.cam_rect.y + 15))
+
+        status = '● 已连接' if self.learner.camera_ok else '○ 未连接'
+        sc = SUCCESS_COLOR if self.learner.camera_ok else ERROR_COLOR
+        st = self.font_small.render(status, True, sc)
+        self.screen.blit(st, (self.cam_rect.right - st.get_width() - 20,
+                              self.cam_rect.y + 20))
+
+        frame = self.learner.get_current_frame()
+        if frame is not None:
+            surf = cvframe_to_surface(frame, CAM_DISP_W, CAM_DISP_H)
+            if surf is not None:
+                # 居中显示在面板内
+                cam_x = self.cam_rect.x + (self.cam_rect.w - CAM_DISP_W) // 2
+                cam_y = self.cam_rect.y + 60
+                self.screen.blit(surf, (cam_x, cam_y))
+        else:
+            hint_text = '摄像头未连接' if not self.learner.camera_ok else '等待画面...'
+            hint_color = ERROR_COLOR if not self.learner.camera_ok else SUBTLE_COLOR
+            hint = self.font_sub.render(hint_text, True, hint_color)
+            self.screen.blit(hint, (self.cam_rect.centerx - hint.get_width() // 2,
+                                    self.cam_rect.centery - hint.get_height() // 2))
+
+        res = self.font_small.render('%d × %d' % (CAMERA_W, CAMERA_H), True, SUBTLE_COLOR)
+        self.screen.blit(res, (self.cam_rect.right - res.get_width() - 20,
+                               self.cam_rect.bottom - 30))
+
+    def draw_info_panel(self):
+        """绘制右侧信息面板：名称输入 + 按钮 + 状态 + 已学习列表"""
+        panel = pygame.Surface(self.info_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(panel, (*PANEL_COLOR, 170), panel.get_rect(), border_radius=18)
+        pygame.draw.rect(panel, PANEL_BORDER, panel.get_rect(), 2, border_radius=18)
+        self.screen.blit(panel, self.info_rect.topleft)
+
+        x = self.info_rect.x + 30
+        x_end = self.info_rect.right - 30
+        y = self.info_rect.y + 20
+
+        # ---- 物体名称输入 ----
+        head = self.font_sub.render('物体名称', True, TITLE_COLOR)
+        self.screen.blit(head, (x, y))
+
+        self.name_input.update()
+        self.name_input.draw(self.screen)
+
+        # ---- 学习按钮 ----
+        self.btn_learn.draw(self.screen, self.font_btn)
+
+        # ---- 状态消息 ----
+        y = self.btn_learn.rect.bottom + 20
+        status_surf = self.font_status.render(self.status_msg, True, self.status_color)
+        max_w = x_end - x
+        if status_surf.get_width() > max_w:
+            status_surf = self.font_small.render(self.status_msg, True, self.status_color)
+        self.screen.blit(status_surf, (x, y))
+
+        # 分隔线
+        y += 40
+        pygame.draw.line(self.screen, PANEL_BORDER,
+                         (x, y), (x_end, y), 2)
+        y += 25
+
+        # ---- 已学习物体列表 ----
+        objects = self.learner.get_learned_objects()
+        head2 = self.font_sub.render('已学习物体（%d 个类别）' % len(objects), True, TITLE_COLOR)
+        self.screen.blit(head2, (x, y))
+        y += 50
+
+        list_bottom = self.info_rect.bottom - 20
+        self.object_delete_rects = []
+        self.object_name_rects = []  # 每帧重建 (rect, name)，用于点击回填名称
         mouse_pos = pygame.mouse.get_pos()
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    if delete_confirm_id is not None:
-                        delete_confirm_id = None
-                    elif show_obj_detail:
-                        show_obj_detail = False
+        if not objects:
+            hint = self.font_item.render('暂无学习记录', True, SUBTLE_COLOR)
+            self.screen.blit(hint, (x, y))
+        else:
+            for i, obj in enumerate(objects):
+                if y + 70 > list_bottom:
+                    more = self.font_small.render(
+                        '...共 %d 个类别' % len(objects), True, SUBTLE_COLOR)
+                    self.screen.blit(more, (x, y))
+                    break
+
+                name = obj.get('name', '?')
+                sample_count = obj.get('sample_count', 0)
+                last_learned = obj.get('last_learned', '')
+
+                # 删除按钮（先算位置，名称可点击区域需避让删除按钮）
+                del_w, del_h = 70, 40
+                del_rect = pygame.Rect(x_end - del_w, y + 10, del_w, del_h)
+
+                # 序号
+                num = self.font_small.render('%d.' % (i + 1), True, SUBTLE_COLOR)
+                self.screen.blit(num, (x, y + 8))
+
+                # 名称可点击区域：整行除删除按钮区域，方便触屏点击
+                name_rect = pygame.Rect(x, y, del_rect.left - x - 10, 70)
+                name_hovered = name_rect.collidepoint(mouse_pos)
+
+                # 物体名称（hover 时变蓝并加下划线，提示可点击回填）
+                name_color = LEARN_COLOR if name_hovered else TEXT_COLOR
+                name_surf = self.font_item.render(name, True, name_color)
+                self.screen.blit(name_surf, (x + 40, y))
+                if name_hovered:
+                    underline_y = y + name_surf.get_height() + 2
+                    pygame.draw.line(self.screen, LEARN_COLOR,
+                                     (x + 40, underline_y),
+                                     (x + 40 + name_surf.get_width(), underline_y), 2)
+
+                # 样本数 + 最后学习时间
+                info_text = '样本 %d  ·  %s' % (sample_count, last_learned)
+                info_surf = self.font_small.render(info_text, True, ACCENT_COLOR)
+                self.screen.blit(info_surf, (x + 40, y + 38))
+
+                # 删除按钮
+                del_btn = SmallButton(del_rect, '删除', DEL_COLOR, DEL_HOVER)
+                del_btn.update(mouse_pos)
+                del_btn.draw(self.screen, self.font_del)
+                self.object_delete_rects.append((del_rect, i))
+                self.object_name_rects.append((name_rect, name))
+
+                y += 70
+
+    def draw_footer(self):
+        """绘制底部栏"""
+        mask = pygame.Surface((WIDTH, self.FOOTER_H), pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 180), mask.get_rect())
+        self.screen.blit(mask, (0, HEIGHT - self.FOOTER_H))
+
+        hint = self.font_small.render(
+            'ESC 退出  ·  输入物体名称后回车或点击「学习物体」  ·  同一物体多次学习可提升识别准确率',
+            True, SUBTLE_COLOR)
+        self.screen.blit(hint, (60, HEIGHT - self.FOOTER_H // 2 - hint.get_height() // 2))
+
+    def run(self):
+        """主循环"""
+        while self.running:
+            mouse_pos = pygame.mouse.get_pos()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.btn_exit.clicked(event.pos):
+                        self.running = False
+                    elif self.btn_learn.clicked(event.pos):
+                        self.handle_learn()
                     else:
-                        running = False
-                elif (input_active and mode == MODE_LEARN
-                      and not show_obj_detail and delete_confirm_id is None):
-                    if event.key == pygame.K_BACKSPACE:
-                        name_input = name_input[:-1]
+                        # 检测删除按钮点击
+                        del_clicked = False
+                        for del_rect, obj_index in self.object_delete_rects:
+                            if del_rect.collidepoint(event.pos):
+                                self.handle_delete_object(obj_index)
+                                del_clicked = True
+                                break
+                        if del_clicked:
+                            continue
+                        # 检测列表名称点击：回填到输入框，方便多次学习
+                        name_clicked = False
+                        for name_rect, name in self.object_name_rects:
+                            if name_rect.collidepoint(event.pos):
+                                self.name_input.text = name
+                                self.name_input.active = True
+                                self.set_status(
+                                    '已选择 [%s]，对准物体后点击「学习物体」添加样本' % name,
+                                    ACCENT_COLOR)
+                                name_clicked = True
+                                break
+                        if not name_clicked:
+                            self.name_input.set_active(event.pos)
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        self.running = False
+                    elif self.name_input.active:
+                        if event.key == pygame.K_RETURN:
+                            self.handle_learn()
+                        else:
+                            self.name_input.handle_key(event)
                     elif event.key == pygame.K_RETURN:
-                        input_active = False
-                        start_learn()
-                    elif event.key == pygame.K_TAB:
-                        input_active = False
-                    else:
-                        ch = event.unicode
-                        if ch and ch.isprintable() and len(name_input) < 20:
-                            name_input += ch
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    if delete_confirm_id is not None:
-                        if btn_confirm_delete.rect.collidepoint(event.pos):
-                            delete_object(delete_confirm_id)
-                            delete_confirm_id = None
-                        elif btn_cancel_delete.rect.collidepoint(event.pos):
-                            delete_confirm_id = None
-                        continue
+                        self.name_input.active = True
 
-                    if show_obj_detail:
-                        if btn_close_detail.rect.collidepoint(event.pos):
-                            show_obj_detail = False
-                        elif btn_detail_prev.rect.collidepoint(event.pos) and btn_detail_prev.enabled:
-                            detail_page = max(0, detail_page - 1)
-                        elif btn_detail_next.rect.collidepoint(event.pos) and btn_detail_next.enabled:
-                            all_items = engine.list_objects()
-                            max_pages = max(0, (len(all_items) - 1) // DETAIL_PAGE_SIZE)
-                            detail_page = min(max_pages, detail_page + 1)
-                        continue
+            self.btn_learn.update(mouse_pos)
+            self.btn_exit.update(mouse_pos)
 
-                    if btn_exit.rect.collidepoint(event.pos):
-                        running = False
-                        continue
-                    if btn_view_objs.rect.collidepoint(event.pos):
-                        show_obj_detail = True
-                        detail_page = 0
-                        continue
-                    if btn_learn_mode.rect.collidepoint(event.pos):
-                        mode = MODE_LEARN
-                        continue
-                    if btn_recog_mode.rect.collidepoint(event.pos):
-                        mode = MODE_RECOGNIZE
-                        continue
+            self.screen.blit(self.bg, (0, 0))
+            self.draw_title()
+            self.draw_camera()
+            self.draw_info_panel()
+            self.draw_footer()
 
-                    clicked_delete = False
-                    for fid, rect in delete_btn_rects:
-                        if rect.collidepoint(event.pos):
-                            delete_confirm_id = fid
-                            clicked_delete = True
-                            break
-                    if clicked_delete:
-                        continue
+            pygame.display.flip()
+            self.clock.tick(30)
 
-                    if mode == MODE_LEARN:
-                        input_active = input_rect.collidepoint(event.pos)
-                        if btn_start_learn.rect.collidepoint(event.pos) and not learning:
-                            start_learn()
-                elif event.button == 4:
-                    if side_x <= mouse_pos[0] <= side_x + side_w and side_y <= mouse_pos[1] <= side_y + side_h:
-                        obj_list_scroll = max(0, obj_list_scroll - 1)
-                elif event.button == 5:
-                    if side_x <= mouse_pos[0] <= side_x + side_w and side_y <= mouse_pos[1] <= side_y + side_h:
-                        items_count = engine.count()
-                        list_top = side_y + 90
-                        list_h = side_h - 90 - 25
-                        entry_h = 50
-                        max_visible = list_h // entry_h
-                        max_scroll = max(0, items_count - max_visible)
-                        obj_list_scroll = min(max_scroll, obj_list_scroll + 1)
-
-        # ----- 识别历史记录 -----
-        if mode == MODE_RECOGNIZE and camera_ok:
-            with recog_lock:
-                recog_results = list(latest_recog)
-            if recog_cooldown > 0:
-                recog_cooldown -= 1
-            if recog_results:
-                box, obj_id, name, conf = recog_results[0]
-                if recog_cooldown == 0 or obj_id != last_recog_id:
-                    time_str = datetime.datetime.now().strftime("%H:%M:%S")
-                    recog_history.append((time_str, obj_id, name, conf))
-                    if len(recog_history) > 20:
-                        recog_history.pop(0)
-                    last_recog_id = obj_id
-                    recog_cooldown = RECOG_COOLDOWN_FRAMES
-
-        if delete_status_timer > 0:
-            delete_status_timer -= 1
-
-        if force_refresh_list:
-            force_refresh_list = False
-            obj_list_scroll = 0
-
-        # =============================================================
-        # 绘制
-        # =============================================================
-        if background:
-            screen.blit(background, (0, 0))
-        else:
-            screen.fill((20, 24, 34))
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 90))
-        screen.blit(overlay, (0, 0))
-
-        # ----- 标题 -----
-        draw_text(screen, "物体学习与识别系统", font_title, TEXT_COLOR,
-                  (WIDTH // 2, TITLE_Y), anchor="midtop")
-
-        # ----- 退出按钮 -----
-        btn_exit.update(mouse_pos)
-        btn_exit.draw(screen)
-
-        # ----- 模式按钮 -----
-        if mode == MODE_LEARN:
-            btn_learn_mode.color = (86, 196, 255, 180)
-            btn_recog_mode.color = BTN_NORMAL
-        else:
-            btn_learn_mode.color = BTN_NORMAL
-            btn_recog_mode.color = (86, 196, 255, 180)
-        btn_learn_mode.update(mouse_pos)
-        btn_learn_mode.draw(screen)
-        btn_recog_mode.update(mouse_pos)
-        btn_recog_mode.draw(screen)
-
-        # =============================================================
-        # 左侧面板：摄像头 + 下方提示/历史
-        # =============================================================
-        draw_panel(screen, panel_x, panel_y, panel_w, panel_h)
-
-        if mode == MODE_LEARN:
-            draw_text(screen, "学习物体 — 摄像头画面", font_subtitle, ACCENT,
-                      (panel_x + 30, panel_y + 20), anchor="topleft")
-            draw_text(screen, "输入名称后点击「开始学习物体」，将带纹理物体放在引导框内完成学习",
-                      font_small, DIM_TEXT, (panel_x + 30, panel_y + 60), anchor="topleft")
-        else:
-            draw_text(screen, "物体识别 — 摄像头画面", font_subtitle, ACCENT,
-                      (panel_x + 30, panel_y + 20), anchor="topleft")
-            draw_text(screen, "将已登记的物体对准摄像头，系统将实时识别并框出位置",
-                      font_small, DIM_TEXT, (panel_x + 30, panel_y + 60), anchor="topleft")
-
-        # 摄像头状态指示
-        status_text = "● 已连接" if camera_ok else "○ 未连接"
-        status_color = SUCCESS if camera_ok else ERROR
-        draw_text(screen, status_text, font_small, status_color,
-                  (panel_x + panel_w - 30, panel_y + 25), anchor="topright")
-
-        with frame_lock:
-            frame = latest_frame
-
-        cam_surface = cvframe_to_surface(frame)
-        if cam_surface:
-            screen.blit(cam_surface, (cam_x, cam_y))
-        else:
-            placeholder = pygame.Surface((CAM_DISP_W, CAM_DISP_H))
-            placeholder.fill((30, 30, 40))
-            screen.blit(placeholder, (cam_x, cam_y))
-            if not camera_ok:
-                ph_lines = ["摄像头未打开",
-                            "请检查 /dev/video41 与 /dev/video40",
-                            "确认设备存在且未被其他程序占用"]
-                draw_text(screen, ph_lines[0], font_msg, ERROR,
-                          (cam_x + CAM_DISP_W // 2, cam_y + CAM_DISP_H // 2 - 36),
-                          anchor="center")
-                for i, line in enumerate(ph_lines[1:], start=1):
-                    draw_text(screen, line, font_small, DIM_TEXT,
-                              (cam_x + CAM_DISP_W // 2,
-                               cam_y + CAM_DISP_H // 2 - 36 + i * 32),
-                              anchor="center")
-            else:
-                draw_text(screen, "画面加载中...", font_msg, DIM_TEXT,
-                          (cam_x + CAM_DISP_W // 2, cam_y + CAM_DISP_H // 2),
-                          anchor="center")
-
-        pygame.draw.rect(screen, ACCENT, (cam_x, cam_y, CAM_DISP_W, CAM_DISP_H), 2, border_radius=8)
-
-        # 学习模式：绘制中心 ROI 引导框
-        if mode == MODE_LEARN and cam_surface is not None:
-            guide_rw = int(CAM_DISP_W * LEARN_ROI_FRAC)
-            guide_rh = int(CAM_DISP_H * LEARN_ROI_FRAC)
-            guide_rx = cam_x + (CAM_DISP_W - guide_rw) // 2
-            guide_ry = cam_y + (CAM_DISP_H - guide_rh) // 2
-            # 虚线效果：用多段短线绘制
-            dash_len = 12
-            gap_len = 8
-            for seg_x in range(guide_rx, guide_rx + guide_rw, dash_len + gap_len):
-                pygame.draw.line(screen, GUIDE_COLOR,
-                                 (seg_x, guide_ry),
-                                 (min(seg_x + dash_len, guide_rx + guide_rw), guide_ry), 3)
-                pygame.draw.line(screen, GUIDE_COLOR,
-                                 (seg_x, guide_ry + guide_rh),
-                                 (min(seg_x + dash_len, guide_rx + guide_rw), guide_ry + guide_rh), 3)
-            for seg_y in range(guide_ry, guide_ry + guide_rh, dash_len + gap_len):
-                pygame.draw.line(screen, GUIDE_COLOR,
-                                 (guide_rx, seg_y),
-                                 (guide_rx, min(seg_y + dash_len, guide_ry + guide_rh)), 3)
-                pygame.draw.line(screen, GUIDE_COLOR,
-                                 (guide_rx + guide_rw, seg_y),
-                                 (guide_rx + guide_rw, min(seg_y + dash_len, guide_ry + guide_rh)), 3)
-            # 四角强调
-            corner_len = 18
-            for cx, cy, dx, dy in [
-                (guide_rx, guide_ry, 1, 1),
-                (guide_rx + guide_rw, guide_ry, -1, 1),
-                (guide_rx, guide_ry + guide_rh, 1, -1),
-                (guide_rx + guide_rw, guide_ry + guide_rh, -1, -1),
-            ]:
-                pygame.draw.line(screen, ACCENT, (cx, cy), (cx + dx * corner_len, cy), 4)
-                pygame.draw.line(screen, ACCENT, (cx, cy), (cx, cy + dy * corner_len), 4)
-            draw_text(screen, "将物体放在此区域内", font_small, GUIDE_COLOR,
-                      (guide_rx + guide_rw // 2, guide_ry - 22), anchor="center")
-
-        # 识别模式：在摄像头画面上绘制物体框与名称
-        if mode == MODE_RECOGNIZE and camera_ok and cam_surface is not None and frame is not None:
-            with recog_lock:
-                recog_results = list(latest_recog)
-            sx = CAM_DISP_W / float(frame.shape[1])
-            sy = CAM_DISP_H / float(frame.shape[0])
-            for (bx, by, bw, bh), obj_id, name, conf in recog_results:
-                if bx is None:
-                    continue
-                rx = cam_x + int(bx * sx)
-                ry = cam_y + int(by * sy)
-                rw = int(bw * sx)
-                rh = int(bh * sy)
-                color = OBJ_BOX_KNOWN if name else OBJ_BOX_UNKNOWN
-                pygame.draw.rect(screen, color, (rx, ry, rw, rh), 3, border_radius=6)
-                label = "{} ({:.0%})".format(name, conf) if name else "未知"
-                lbl_surf = font_box.render(label, True, (0, 0, 0))
-                lbl_bg_w = lbl_surf.get_width() + 16
-                lbl_bg_h = lbl_surf.get_height() + 6
-                lbl_bg = pygame.Surface((lbl_bg_w, lbl_bg_h), pygame.SRCALPHA)
-                lbl_bg.fill((color[0], color[1], color[2], 220))
-                screen.blit(lbl_bg, (rx, max(cam_y, ry - lbl_bg_h)))
-                screen.blit(lbl_surf, (rx + 8, max(cam_y, ry - lbl_bg_h) + 3))
-            if recog_results:
-                draw_text(screen, "● 识别到物体", font_small, SUCCESS,
-                          (cam_x + 12, cam_y + 12), anchor="topleft")
-
-        # ----- 摄像头下方：操作提示 / 识别历史 -----
-        if mode == MODE_LEARN:
-            draw_text(screen, "操作提示", font_label, ACCENT,
-                      (panel_x + 30, below_cam_y), anchor="topleft")
-            tips = [
-                "1. 在右侧输入框输入物体名称",
-                "2. 点击「开始学习物体」或按回车键",
-                "3. 将带纹理的物体放在蓝色引导框内保持不动",
-                "4. 学习成功后自动保存特征与样本到 object_data/",
-                "5. 其他程序可 from 物体学习 import ObjectEngine 调用",
-            ]
-            ty = below_cam_y + 35
-            for line in tips:
-                draw_text(screen, line, font_small, DIM_TEXT, (panel_x + 50, ty))
-                ty += 28
-        else:
-            draw_text(screen, "识别历史", font_label, ACCENT,
-                      (panel_x + 30, below_cam_y), anchor="topleft")
-            line_h = 28
-            max_lines = below_cam_h // line_h - 1
-            start_idx = max(0, len(recog_history) - max_lines)
-            i = 0
-            for idx in range(start_idx, len(recog_history)):
-                t_str, oid, name, conf = recog_history[idx]
-                if name:
-                    color = SUCCESS
-                    line = "[{}]  ID={}  {}  置信度={:.0%}".format(t_str, oid, name, conf)
-                else:
-                    color = WARN
-                    line = "[{}]  未识别物体".format(t_str)
-                draw_text(screen, line, font_small, color,
-                          (panel_x + 50, below_cam_y + 35 + i * line_h))
-                i += 1
-            if not recog_history:
-                draw_text(screen, "（暂无识别记录）", font_small, DIM_TEXT,
-                          (panel_x + 50, below_cam_y + 35), anchor="topleft")
-
-        # =============================================================
-        # 右侧上方面板
-        # =============================================================
-        draw_panel(screen, rtop_x, rtop_y, rtop_w, rtop_h)
-
-        if mode == MODE_LEARN:
-            draw_text(screen, "学习控件", font_subtitle, ACCENT,
-                      (rtop_x + 20, rtop_y + 15), anchor="topleft")
-            draw_text(screen, "名称：", font_label, TEXT_COLOR,
-                      (rtop_x + 20, rtop_y + 50), anchor="topleft")
-
-            input_surf = pygame.Surface(input_rect.size, pygame.SRCALPHA)
-            input_surf.fill(INPUT_BG)
-            screen.blit(input_surf, input_rect.topleft)
-            border_color = ACCENT if input_active else (255, 255, 255, 80)
-            pygame.draw.rect(screen, border_color, input_rect, 2, border_radius=10)
-            show_text = name_input if name_input else ("请输入物体名称..." if not input_active else "")
-            input_color = TEXT_COLOR if name_input else DIM_TEXT
-            draw_text(screen, show_text, font_input, input_color,
-                      (input_rect.x + 12, input_rect.centery), anchor="midleft")
-            if input_active and (pygame.time.get_ticks() // 500) % 2 == 0:
-                tw = font_input.size(name_input)[0]
-                cx = input_rect.x + 12 + tw + 2
-                pygame.draw.line(screen, WHITE, (cx, input_rect.y + 10),
-                                 (cx, input_rect.bottom - 10), 2)
-
-            btn_start_learn.enabled = not learning
-            btn_start_learn.text = "学习中..." if learning else "开始学习物体"
-            btn_start_learn.update(mouse_pos)
-            btn_start_learn.draw(screen)
-
-            if learn_status:
-                draw_text(screen, learn_status, font_msg, learn_status_color,
-                          (rtop_x + 20, rtop_y + 212), anchor="topleft")
-        else:
-            draw_text(screen, "识别结果", font_subtitle, ACCENT,
-                      (rtop_x + 20, rtop_y + 15), anchor="topleft")
-            rtop_cx = rtop_x + rtop_w // 2
-            if not camera_ok:
-                draw_text(screen, "摄像头未打开", font_big_result, ERROR,
-                          (rtop_cx, rtop_y + 75), anchor="center")
-            elif not recog_history:
-                draw_text(screen, "等待识别物体...", font_big_result, DIM_TEXT,
-                          (rtop_cx, rtop_y + 75), anchor="center")
-            else:
-                t_str, oid, name, conf = recog_history[-1]
-                if name:
-                    result_line = "识别到：{}".format(name)
-                    result_color = SUCCESS
-                else:
-                    result_line = "未识别物体"
-                    result_color = WARN
-                draw_text(screen, result_line, font_big_result, result_color,
-                          (rtop_cx, rtop_y + 70), anchor="center")
-                if name:
-                    detail = "物体ID：{}    置信度：{:.0%}".format(oid, conf)
-                else:
-                    detail = "未在物体库中匹配到"
-                draw_text(screen, detail, font_msg, DIM_TEXT,
-                          (rtop_cx, rtop_y + 130), anchor="center")
-                draw_text(screen, "时间：{}".format(t_str), font_small, DIM_TEXT,
-                          (rtop_cx, rtop_y + 165), anchor="center")
-
-        # =============================================================
-        # 查看物体库按钮
-        # =============================================================
-        btn_view_objs.update(mouse_pos)
-        btn_view_objs.draw(screen)
-
-        # =============================================================
-        # 右侧物体库面板
-        # =============================================================
-        delete_btn_rects = []
-        draw_panel(screen, side_x, side_y, side_w, side_h)
-
-        draw_text(screen, "已保存物体库", font_subtitle, ACCENT,
-                  (side_x + 20, side_y + 12), anchor="topleft")
-        draw_text(screen, "共 {} 个  |  点击「删除」移除  |  滚轮滚动".format(engine.count()),
-                  font_small, DIM_TEXT, (side_x + 20, side_y + 52), anchor="topleft")
-
-        list_top = side_y + 85
-        list_h = side_h - 85 - 25
-        entry_h = 50
-        max_visible = list_h // entry_h
-        items = engine.list_objects()
-
-        max_scroll = max(0, len(items) - max_visible)
-        if obj_list_scroll > max_scroll:
-            obj_list_scroll = max_scroll
-
-        start_idx = obj_list_scroll
-        end_idx = min(start_idx + max_visible, len(items))
-
-        for i in range(start_idx, end_idx):
-            oid, info = items[i]
-            entry_y = list_top + (i - start_idx) * entry_h
-            if (i - start_idx) % 2 == 0:
-                entry_bg = pygame.Surface((side_w - 30, entry_h - 4), pygame.SRCALPHA)
-                entry_bg.fill((255, 255, 255, 15))
-                screen.blit(entry_bg, (side_x + 15, entry_y))
-
-            line = "ID {}  :  {}".format(oid, info["name"])
-            draw_text(screen, line, font_msg, TEXT_COLOR, (side_x + 20, entry_y + 4))
-            sample_n = info.get("samples", len(info.get("desc_files", [])))
-            draw_text(screen, "{}  |  样本 {}".format(info.get("created_at", ""), sample_n),
-                      font_small, DIM_TEXT, (side_x + 20, entry_y + 28))
-
-            del_rect = pygame.Rect(side_x + side_w - 100, entry_y + 9, 80, 30)
-            delete_btn_rects.append((oid, del_rect))
-            del_hovered = del_rect.collidepoint(mouse_pos)
-            del_color = (235, 87, 87, 200) if del_hovered else (235, 87, 87, 100)
-            del_surf = pygame.Surface(del_rect.size, pygame.SRCALPHA)
-            pygame.draw.rect(del_surf, del_color, del_surf.get_rect(), border_radius=8)
-            pygame.draw.rect(del_surf, EXIT_RED, del_surf.get_rect(), 2, border_radius=8)
-            screen.blit(del_surf, del_rect.topleft)
-            del_text = font_small.render("删除", True, WHITE)
-            screen.blit(del_text, del_text.get_rect(center=del_rect.center))
-
-        if not items:
-            draw_text(screen, "（尚无物体，请先学习）", font_small, DIM_TEXT,
-                      (side_x + 20, list_top), anchor="topleft")
-
-        if len(items) > max_visible:
-            scroll_info = "{}-{}/{}".format(start_idx + 1, end_idx, len(items))
-            draw_text(screen, scroll_info, font_small, DIM_TEXT,
-                      (side_x + side_w - 20, side_y + side_h - 20), anchor="topright")
-
-        # ----- 删除操作 toast 提示 -----
-        if delete_status_timer > 0 and delete_status:
-            msg_w = font_msg.size(delete_status)[0] + 60
-            msg_rect = pygame.Rect(WIDTH // 2 - msg_w // 2, TOAST_Y, msg_w, 38)
-            msg_bg = pygame.Surface(msg_rect.size, pygame.SRCALPHA)
-            msg_bg.fill((0, 0, 0, 200))
-            screen.blit(msg_bg, msg_rect.topleft)
-            pygame.draw.rect(screen, delete_status_color, msg_rect, 2, border_radius=8)
-            draw_text(screen, delete_status, font_msg, delete_status_color,
-                      (WIDTH // 2, TOAST_Y + 19), anchor="center")
-
-        # ----- 底部提示 -----
-        hint = "ESC 退出 | 摄像头画面已整合到主窗口 | 鼠标滚轮可滚动物体库列表"
-        draw_text(screen, hint, font_small, DIM_TEXT, (WIDTH // 2, HINT_Y), anchor="center")
-
-        # =============================================================
-        # 查看物体库详细信息弹窗
-        # =============================================================
-        if show_obj_detail:
-            modal_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            modal_overlay.fill((0, 0, 0, 180))
-            screen.blit(modal_overlay, (0, 0))
-
-            modal_x, modal_y = WIDTH // 2 - 600, 130
-            modal_w, modal_h = 1200, 820
-            modal_panel = pygame.Surface((modal_w, modal_h), pygame.SRCALPHA)
-            modal_panel.fill((30, 35, 50, 245))
-            screen.blit(modal_panel, (modal_x, modal_y))
-            pygame.draw.rect(screen, ACCENT, (modal_x, modal_y, modal_w, modal_h), 3, border_radius=12)
-
-            all_items = engine.list_objects()
-            draw_text(screen, "物体库详细信息", font_title, TEXT_COLOR,
-                      (modal_x + 40, modal_y + 20), anchor="topleft")
-            draw_text(screen, "共 {} 个    数据文件：{}".format(len(all_items), OBJECT_DB_FILE),
-                      font_small, DIM_TEXT, (modal_x + 40, modal_y + 75), anchor="topleft")
-
-            btn_close_detail.update(mouse_pos)
-            btn_close_detail.draw(screen)
-
-            total_pages = max(1, (len(all_items) + DETAIL_PAGE_SIZE - 1) // DETAIL_PAGE_SIZE)
-            if detail_page > total_pages - 1:
-                detail_page = total_pages - 1
-            page_start = detail_page * DETAIL_PAGE_SIZE
-            page_end = min(page_start + DETAIL_PAGE_SIZE, len(all_items))
-            page_items = all_items[page_start:page_end]
-
-            entry_start_y = modal_y + 120
-            detail_entry_h = 75
-            for i, (oid, info) in enumerate(page_items):
-                ey = entry_start_y + i * detail_entry_h
-                if i > 0:
-                    pygame.draw.line(screen, (255, 255, 255, 40),
-                                     (modal_x + 40, ey), (modal_x + modal_w - 40, ey), 1)
-                draw_text(screen, "物体 ID：{}".format(oid), font_label, ACCENT,
-                          (modal_x + 40, ey + 8), anchor="topleft")
-                draw_text(screen, "名称：{}".format(info.get("name", "")), font_label, TEXT_COLOR,
-                          (modal_x + 300, ey + 8), anchor="topleft")
-                draw_text(screen, "登记时间：{}    样本数：{}".format(
-                    info.get("created_at", ""), info.get("samples", len(info.get("desc_files", [])))),
-                    font_small, DIM_TEXT, (modal_x + 40, ey + 42), anchor="topleft")
-
-            if not all_items:
-                draw_text(screen, "物体库为空，请先学习物体", font_big_result, DIM_TEXT,
-                          (modal_x + modal_w // 2, modal_y + modal_h // 2), anchor="center")
-
-            draw_text(screen, "第 {} / {} 页".format(detail_page + 1, total_pages), font_small, DIM_TEXT,
-                      (WIDTH // 2, HEIGHT - 115), anchor="center")
-            btn_detail_prev.enabled = detail_page > 0
-            btn_detail_next.enabled = detail_page < total_pages - 1
-            btn_detail_prev.update(mouse_pos)
-            btn_detail_prev.draw(screen)
-            btn_detail_next.update(mouse_pos)
-            btn_detail_next.draw(screen)
-
-        # =============================================================
-        # 删除确认弹窗
-        # =============================================================
-        if delete_confirm_id is not None:
-            dialog_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            dialog_overlay.fill((0, 0, 0, 180))
-            screen.blit(dialog_overlay, (0, 0))
-
-            dlg_w, dlg_h = 560, 260
-            dlg_x = WIDTH // 2 - dlg_w // 2
-            dlg_y = HEIGHT // 2 - dlg_h // 2
-            dlg_panel = pygame.Surface((dlg_w, dlg_h), pygame.SRCALPHA)
-            dlg_panel.fill((45, 35, 40, 245))
-            screen.blit(dlg_panel, (dlg_x, dlg_y))
-            pygame.draw.rect(screen, EXIT_RED, (dlg_x, dlg_y, dlg_w, dlg_h), 3, border_radius=12)
-
-            obj_name = engine.get_name(delete_confirm_id) or ""
-            draw_text(screen, "确认删除？", font_subtitle, EXIT_RED,
-                      (WIDTH // 2, dlg_y + 25), anchor="midtop")
-            draw_text(screen, "将删除：ID={}  名称={}".format(delete_confirm_id, obj_name),
-                      font_msg, TEXT_COLOR, (WIDTH // 2, dlg_y + 90), anchor="center")
-            draw_text(screen, "将同时删除其特征数据与样本图并重建识别索引",
-                      font_small, DIM_TEXT, (WIDTH // 2, dlg_y + 130), anchor="center")
-
-            btn_confirm_delete.update(mouse_pos)
-            btn_confirm_delete.draw(screen)
-            btn_cancel_delete.update(mouse_pos)
-            btn_cancel_delete.draw(screen)
-
-        pygame.display.flip()
-        clock.tick(30)
-
-    # ----- 清理资源 -----
-    cam_thread_running = False
-    recog_thread_running = False
-    time.sleep(0.15)
-    if cap is not None:
+        # 退出清理
+        print('正在关闭程序...')
+        self.learner.close()
+        pygame.quit()
         try:
-            cap.release()
-            print("摄像头已释放")
+            _debug_log_fp.close()
         except Exception:
             pass
-    pygame.quit()
 
 
-if __name__ == "__main__":
-    main()
+# ===================== 入口 =====================
+if __name__ == '__main__':
+    app = ObjectLearnApp()
+    app.run()

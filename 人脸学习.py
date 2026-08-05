@@ -45,6 +45,58 @@ from ESP32 import *
 from camera_vision_system_v3 import create_vision_system_v3
 
 
+# ===================== 日志输出（控制台 + 文件）=====================
+# 把所有 print 输出同时写入 logs/ 目录下的日志文件，方便在好搭AI派上导出排查
+# 注意：
+#   1. 日志统一存到 logs/ 文件夹，避免散落在项目根目录
+#   2. 文件名含程序名+日期时间，不会覆盖上次的日志
+#   3. 用追加模式 'a'，同一程序多次运行追加到当天日志
+#   4. 用块缓冲(buffering=-1)而非行缓冲，避免后台检测线程高频写日志阻塞主循环
+import os as _os
+import datetime as _datetime
+import sys as _sys
+_LOG_DIR = 'logs'
+if not _os.path.exists(_LOG_DIR):
+    try:
+        _os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = _os.path.join(
+    _LOG_DIR,
+    '人脸学习_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+# 写入分隔标记，区分不同次运行
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+_sys.stdout = _TeeStdout(_sys.stdout)
+_sys.stderr = _TeeStdout(_sys.stderr)
+
+
 # ===================== 配置 =====================
 WIDTH, HEIGHT = 1920, 1080
 
@@ -853,6 +905,7 @@ class FaceLearnApp:
             self.clock.tick(30)
 
         # 退出清理
+        print('正在关闭程序...')
         self.cam_thread_running = False
         time.sleep(0.2)
         try:
@@ -862,6 +915,10 @@ class FaceLearnApp:
             pass
         self.learner.close()
         pygame.quit()
+        try:
+            _debug_log_fp.close()
+        except Exception:
+            pass
 
 
 # ===================== 入口 =====================
