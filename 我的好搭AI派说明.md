@@ -8,6 +8,6 @@
 
 - <https://chat.deepseek.com/share/q83n07e44qrx5csiiq>
 
-## 安装库 mediapipe 手势识别
+## 安装库 mediapipe 手势、姿态识别
 
 - python3 -m pip install mediapipe -i <https://pypi.tuna.tsinghua.edu.cn/simple>
