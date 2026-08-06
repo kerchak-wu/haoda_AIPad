@@ -1,6 +1,6 @@
 # Haoda_AIPad
 
-好搭AI派AIcoding项目集
+好搭AI派 AI Coding 项目集
 
 ## 项目资料
 
