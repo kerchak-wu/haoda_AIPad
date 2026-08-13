@@ -4,9 +4,8 @@
 
 - python3 -m pip install opencv-contrib-python pygame-ce numpy
   
-## 已上传字体文件
+## 已上传好搭AI派字体文件
 
-- <https://chat.deepseek.com/share/q83n07e44qrx5csiiq>
 - 字体文件地址：/home/cxdz/jupyter/assets/
   - Deng.ttf
   - Dengb.ttf
@@ -32,6 +31,7 @@
   - simhei.ttf
   - simkai.ttf
   - simsun.ttc
+- 上传方法：<https://chat.deepseek.com/share/q83n07e44qrx5csiiq>
 
 ## 安装库 mediapipe 手势、姿态识别
 

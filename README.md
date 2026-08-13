@@ -8,7 +8,6 @@
 - [📄 好搭AI派范例代码](好搭AI派范例代码.md)
 - [📄 视觉系统摄像头调用参考方案](视觉系统摄像头调用参考方案.md)
 - [📄 camera_vision_system_v3 API分析报告](camera_vision_system_v3_API分析报告.md)
-- [📄 字体文件列表](字体文件列表.txt)
 - [📄 我的好搭AI派说明](我的好搭AI派说明.md)
 
 ## 项目列表
