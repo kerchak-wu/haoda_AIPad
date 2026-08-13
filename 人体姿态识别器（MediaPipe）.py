@@ -11,7 +11,7 @@
   6. 退出按钮 + ESC 快捷键
 
 硬件依赖：
-  - USB 外接摄像头（好搭AI派 USB 接口）
+  - USB 外接摄像头（接在 ESP32 扩展板 USB 口）
 
 第三方库：
   - opencv-python
@@ -27,16 +27,62 @@ import os
 # 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
 os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
+import sys
 import math
 import time
 import signal
 import threading
+import datetime as _datetime
 
 # 导入顺序：先 pygame 再 cv2（rockchip 平台兼容性要求）
 import pygame
 import cv2
 import numpy as np
 import mediapipe as mp
+
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 参照人脸识别灯效.py / 人数实时统计.py 的日志方案：
+# logs/ 目录、程序名_YYYYMMDD.log、追加模式、块缓冲
+_LOG_DIR = 'logs'
+if not os.path.exists(_LOG_DIR):
+    try:
+        os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = os.path.join(
+    _LOG_DIR,
+    '人体姿态识别器_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
 
 # ===================== 配置 =====================
 WIDTH, HEIGHT = 1920, 1080
@@ -140,16 +186,18 @@ class _CameraProbeTimeout(Exception):
 
 
 def _is_valid_frame(frame):
-    """判断帧是否为有效画面（非空、非全黑、非雪花噪声）"""
+    """判断帧是否为有效画面（非空、非全黑、非全白）
+
+    项目记忆：摄像头采集线程中使用 gray.std() 进行帧检测在 ARM 设备上计算
+    开销过大，应改用 gray.mean() 检测全黑/全白帧。
+    """
     if frame is None or frame.size == 0:
         return False
     try:
-        std_orig = float(frame.std())
-        if std_orig < 5:
-            return False
-        small = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
-        std_small = float(small.std())
-        if std_orig > 20 and std_small / std_orig < 0.2:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean_val = float(gray.mean())
+        # 全黑或全白帧视为无效（阈值 10 和 245 经验值）
+        if mean_val < 10 or mean_val > 245:
             return False
         return True
     except Exception:
@@ -407,10 +455,10 @@ class PoseApp:
 
         self.running = True
 
-        # 退出按钮
-        btn_y = HEIGHT - self.FOOTER_H + 38
+        # 退出按钮（右上角标题栏内，符合项目记忆：退出按钮必须设在右上角标题栏内）
+        # 标题栏高度 110，按钮高度 70，垂直居中 y = (110-70)/2 = 20
         self.btn_exit = Button(
-            (WIDTH - 264, btn_y, 240, 70),
+            (WIDTH - 280, 20, 240, 70),
             '退出', BTN_EXIT_COLOR, BTN_EXIT_HOVER
         )
 
@@ -560,8 +608,8 @@ class PoseApp:
         return pygame.transform.scale(surf, (new_w, new_h)), new_w, new_h, scale
 
     # ---------- 绘制 ----------
-    def draw_title(self):
-        """绘制顶部标题栏"""
+    def draw_title(self, mouse_pos):
+        """绘制顶部标题栏（含右上角退出按钮）"""
         mask = pygame.Surface((WIDTH, self.TITLE_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (20, 50, 100, 200), mask.get_rect())
         self.screen.blit(mask, (0, 0))
@@ -575,6 +623,10 @@ class PoseApp:
             'HUMAN  POSE  ESTIMATION   |   USB摄像头  ->  MediaPipe Pose  ->  33关键点实时检测',
             True, (200, 220, 240))
         self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, 76))
+
+        # 退出按钮（右上角标题栏内）
+        self.btn_exit.update(mouse_pos)
+        self.btn_exit.draw(self.screen, self.font_btn)
 
     def draw_corner_brackets(self, x, y, w, h, color=ACCENT_CYAN):
         """在摄像头画面四角绘制科技感瞄准框"""
@@ -802,15 +854,12 @@ class PoseApp:
         self.screen.blit(status, (content_x, cy))
 
     def draw_footer(self, mouse_pos):
-        """绘制底部按钮栏"""
+        """绘制底部状态栏（退出按钮已移至标题栏右上角）"""
         mask = pygame.Surface((WIDTH, self.FOOTER_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (20, 50, 100, 200), mask.get_rect())
         self.screen.blit(mask, (0, HEIGHT - self.FOOTER_H))
         pygame.draw.line(self.screen, ACCENT_CYAN,
                          (0, HEIGHT - self.FOOTER_H), (WIDTH, HEIGHT - self.FOOTER_H), 2)
-
-        self.btn_exit.update(mouse_pos)
-        self.btn_exit.draw(self.screen, self.font_btn)
 
         # 状态文字
         status = self.font_status.render(self.status_message, True, self.status_color)
@@ -850,7 +899,7 @@ class PoseApp:
             # 绘制（加异常保护，防止静默崩溃）
             try:
                 self.screen.blit(self.bg, (0, 0))
-                self.draw_title()
+                self.draw_title(mouse_pos)
                 self.draw_camera_panel()
                 self.draw_result_panel()
                 self.draw_footer(mouse_pos)
@@ -879,6 +928,10 @@ class PoseApp:
             pass
         pygame.quit()
         print('程序已退出')
+        try:
+            _debug_log_fp.close()
+        except Exception:
+            pass
 
 
 # ===================== 入口 =====================

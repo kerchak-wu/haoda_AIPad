@@ -36,17 +36,68 @@
 """
 
 import os
+# 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
+# 参考方案第 7 章 Rockchip 平台兼容性补丁
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
+import sys
 import math
 import time
 import signal
 import threading
+import datetime as _datetime
 
+# 导入顺序：先 pygame 再 cv2（rockchip 平台兼容性要求）
 import pygame
 import cv2
 import numpy as np
 import mediapipe as mp
 
 from ESP32 import *
+
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 参照人脸识别灯效.py / 人数实时统计.py 的日志方案：
+# logs/ 目录、程序名_YYYYMMDD.log、追加模式、块缓冲
+_LOG_DIR = 'logs'
+if not os.path.exists(_LOG_DIR):
+    try:
+        os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = os.path.join(
+    _LOG_DIR,
+    '手势控制RGB灯带_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
 
 
 # ===================== 配置 =====================
@@ -230,16 +281,18 @@ class _CameraProbeTimeout(Exception):
 
 
 def _is_valid_frame(frame):
-    """判断帧是否为有效画面（非空、非全黑、非雪花噪声）"""
+    """判断帧是否为有效画面（非空、非全黑、非全白）
+
+    项目记忆：摄像头采集线程中使用 gray.std() 进行帧检测在 ARM 设备上计算
+    开销过大，应改用 gray.mean() 检测全黑/全白帧。
+    """
     if frame is None or frame.size == 0:
         return False
     try:
-        std_orig = float(frame.std())
-        if std_orig < 5:
-            return False
-        small = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
-        std_small = float(small.std())
-        if std_orig > 20 and std_small / std_orig < 0.2:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean_val = float(gray.mean())
+        # 全黑或全白帧视为无效（阈值 10 和 245 经验值）
+        if mean_val < 10 or mean_val > 245:
             return False
         return True
     except Exception:
@@ -408,7 +461,8 @@ def cvframe_to_surface(frame, target_w, target_h):
         transposed = np.transpose(frame, (1, 0, 2))
         surf = pygame.surfarray.make_surface(transposed)
         # convert() 与显示格式一致，大幅提升后续 blit 速度
-        return pygame.transform.smoothscale(surf, (target_w, target_h)).convert()
+        # 使用 scale 而非 smoothscale（项目记忆：smoothscale 对摄像头帧缩放有显著 CPU 开销）
+        return pygame.transform.scale(surf, (target_w, target_h)).convert()
     except Exception:
         return None
 
@@ -447,7 +501,9 @@ class GestureApp:
     FOOTER_H = 120
 
     def __init__(self):
-        pygame.init()
+        # 分段初始化（不调用 pygame.init()），避免 pygame.mixer 导致原生崩溃
+        # 参考方案第 7 章 Rockchip 平台兼容性补丁
+        pygame.display.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('手势控制RGB灯带')
@@ -476,8 +532,9 @@ class GestureApp:
                                      WIDTH - self.cam_rect.right - 30 - 40,
                                      HEIGHT - self.TITLE_H - 20 - self.FOOTER_H)
 
-        # 退出按钮（底部右侧）
-        self.btn_exit = Button((WIDTH - 260, HEIGHT - 95, 200, 70),
+        # 退出按钮（右上角标题栏内，符合项目记忆：退出按钮必须设在右上角标题栏内）
+        # 标题栏高度 130，按钮高度 70，垂直居中 y = (130-70)/2 = 30
+        self.btn_exit = Button((WIDTH - 280, 30, 240, 70),
                                '退出程序', EXIT_COLOR, EXIT_HOVER)
 
         # 打开摄像头
@@ -572,10 +629,12 @@ class GestureApp:
             self.current_gesture = g
             set_led_effect(g)
             info = GESTURE_MAP[g]
-            print('手势切换：%s -> 灯效：%s' % (info['name'], info['effect']))
+            print('[%s] 手势切换：%s -> 灯效：%s' %
+                  (_datetime.datetime.now().strftime('%H:%M:%S'),
+                   info['name'], info['effect']))
 
-    def draw_title(self):
-        """绘制顶部标题栏"""
+    def draw_title(self, mouse_pos):
+        """绘制顶部标题栏（含右上角退出按钮）"""
         mask = pygame.Surface((WIDTH, self.TITLE_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (255, 255, 255, 180), mask.get_rect())
         self.screen.blit(mask, (0, 0))
@@ -586,6 +645,10 @@ class GestureApp:
             'USB摄像头识别手势  ·  IO1 RGB灯带(4灯珠)  ·  不同手势对应不同灯效',
             True, SUBTLE_COLOR)
         self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, 90))
+
+        # 退出按钮（右上角标题栏内）
+        self.btn_exit.update(mouse_pos)
+        self.btn_exit.draw(self.screen, self.font_btn)
 
     def draw_camera(self):
         """绘制摄像头画面区域"""
@@ -690,18 +753,14 @@ class GestureApp:
             y += 52
 
     def draw_footer(self, mouse_pos):
-        """绘制底部栏：退出按钮 + 提示信息"""
+        """绘制底部栏：提示信息（退出按钮已移至标题栏右上角）"""
         mask = pygame.Surface((WIDTH, self.FOOTER_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (255, 255, 255, 180), mask.get_rect())
         self.screen.blit(mask, (0, HEIGHT - self.FOOTER_H))
 
-        # 退出按钮
-        self.btn_exit.update(mouse_pos)
-        self.btn_exit.draw(self.screen, self.font_btn)
-
         # 提示信息
         hint = self.font_small.render(
-            'ESC 或点击「退出程序」退出  ·  将手对准摄像头做出手势  ·  连续%d帧确认手势' % CONFIRM_FRAMES,
+            'ESC 或点击右上角「退出程序」退出  ·  将手对准摄像头做出手势  ·  连续%d帧确认手势' % CONFIRM_FRAMES,
             True, SUBTLE_COLOR)
         self.screen.blit(hint, (40, HEIGHT - 50))
 
@@ -728,7 +787,7 @@ class GestureApp:
 
             # 绘制界面
             self.screen.blit(self.bg, (0, 0))
-            self.draw_title()
+            self.draw_title(mouse_pos)
             self.draw_camera()
             self.draw_info_panel()
             self.draw_footer(mouse_pos)
@@ -750,6 +809,10 @@ class GestureApp:
             pass
         led_off()
         pygame.quit()
+        try:
+            _debug_log_fp.close()
+        except Exception:
+            pass
 
 
 # ===================== 入口 =====================

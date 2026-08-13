@@ -21,14 +21,25 @@
 """
 
 # ====== 注意：text_recognition 必须最先导入，否则OCR会报错 ======
-from text_recognition import TextRecognizer
+# try/except 容错：导入失败时记录错误，程序仍可启动（智能导读功能不可用）
+try:
+    from text_recognition import TextRecognizer as _TextRecognizer
+    _TEXT_RECOGNITION_AVAILABLE = True
+    _TEXT_RECOGNITION_ERROR = None
+except Exception as _e:
+    _TEXT_RECOGNITION_AVAILABLE = False
+    _TEXT_RECOGNITION_ERROR = _e
+
+import os
+# Rockchip 平台兼容性补丁（参照《视觉系统摄像头调用参考方案》第7章）
+# 必须在 import pygame 之前设置，强制 libGL 软件渲染，避免 Mali GPU 驱动崩溃
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
 import pygame
 import cv2
 import time
 import math
 import threading
-import os
 import logging
 import queue
 import wave
@@ -36,16 +47,48 @@ import struct
 import numpy as np
 from datetime import datetime
 
-from ESP32 import *
-from voice_api import VoiceAPI
-from audio_player import AudioPlayer
-from audio_recorder import AudioRecorder
-from camera_vision_system_v3 import create_vision_system_v3
+try:
+    from ESP32 import *
+    _ESP32_AVAILABLE = True
+    _ESP32_ERROR = None
+except Exception as _e:
+    _ESP32_AVAILABLE = False
+    _ESP32_ERROR = _e
+
+try:
+    from voice_api import VoiceAPI
+    _VOICE_API_AVAILABLE = True
+except Exception as _e:
+    _VOICE_API_AVAILABLE = False
+    _VOICE_API_ERROR = _e
+
+try:
+    from audio_player import AudioPlayer
+    _AUDIO_PLAYER_AVAILABLE = True
+except Exception as _e:
+    _AUDIO_PLAYER_AVAILABLE = False
+    _AUDIO_PLAYER_ERROR = _e
+
+try:
+    from audio_recorder import AudioRecorder
+    _AUDIO_RECORDER_AVAILABLE = True
+except Exception as _e:
+    _AUDIO_RECORDER_AVAILABLE = False
+    _AUDIO_RECORDER_ERROR = _e
+
+try:
+    from camera_vision_system_v3 import create_vision_system_v3
+    _VISION_SYSTEM_AVAILABLE = True
+    _VISION_SYSTEM_ERROR = None
+except Exception as _e:
+    _VISION_SYSTEM_AVAILABLE = False
+    _VISION_SYSTEM_ERROR = _e
 
 # ==================== 配置参数 ====================
 WINDOW_W, WINDOW_H = 1920, 1080
-PIR_PIN = GPIO_IO_01
-RGB_PIN = GPIO_IO_02
+# GPIO_IO_01/02 来自 ESP32 模块；ESP32 导入失败时回退到数字引脚号，避免 NameError
+PIR_PIN = GPIO_IO_01 if _ESP32_AVAILABLE else 1
+RGB_PIN = GPIO_IO_02 if _ESP32_AVAILABLE else 2
 NUM_LEDS = 11
 MENU_TIMEOUT = 30  # 功能选择界面无人操作超时(秒)
 
@@ -185,15 +228,23 @@ def draw_button(surface, rect, text, font, color, text_color=(255, 255, 255), ho
 
 
 def setup_logging():
-    """初始化日志：控制台+文件双输出，参考仓库项目日志规范"""
+    """初始化日志：控制台+文件双输出
+
+    遵循项目工程约定：
+    - 日志目录 logs/，文件名格式 智慧阅读角_YYYYMMDD.log
+    - 追加模式（'a'）而非覆盖，同一天多次运行累积保留
+    - 每次启动写入分隔标记，便于区分多次运行
+    """
     os.makedirs('logs', exist_ok=True)
-    log_filename = os.path.join('logs', f"智慧阅读角_{datetime.now().strftime('%m%d_%H%M%S')}.log")
+    log_filename = os.path.join(
+        'logs', '智慧阅读角_%s.log' % datetime.now().strftime('%Y%m%d'))
     logger = logging.getLogger('SmartReading')
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
     fmt = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
-    fh = logging.FileHandler(log_filename, encoding='utf-8')
+    # 文件 handler 用追加模式，DEBUG 级别全量记录
+    fh = logging.FileHandler(log_filename, mode='a', encoding='utf-8')
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
     logger.addHandler(fh)
@@ -202,6 +253,7 @@ def setup_logging():
     ch.setLevel(logging.INFO)
     logger.addHandler(ch)
     logger.info('=' * 60)
+    logger.info('======== %s 运行开始 ========', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     logger.info('智慧阅读角程序启动，日志文件: %s', log_filename)
     logger.info('=' * 60)
     return logger
@@ -240,7 +292,8 @@ class LightManager:
                 else:
                     self._render(mode)
                 self.step += 1
-            except:
+            except Exception:
+                # 串口偶发超时属正常，忽略本次，下次重试
                 pass
             time.sleep(0.05)
 
@@ -356,12 +409,17 @@ class LightManager:
     def stop(self):
         self.running = False
         try:
-            if self._board_lock is not None:
-                with self._board_lock:
+            # 仅在 board 对象有 ws2812Write 能力且 device 属性存在时才真正写入
+            # （扩展板 start() 失败时 board 对象可能缺少 device 属性）
+            if (self.board is not None
+                    and hasattr(self.board, 'ws2812Write')
+                    and hasattr(self.board, 'device')):
+                if self._board_lock is not None:
+                    with self._board_lock:
+                        self.board.ws2812Write(self.pin, 255, 0, 0, 0)
+                else:
                     self.board.ws2812Write(self.pin, 255, 0, 0, 0)
-            else:
-                self.board.ws2812Write(self.pin, 255, 0, 0, 0)
-        except:
+        except Exception:
             pass
 
 
@@ -384,6 +442,7 @@ class SmartReadingApp:
 
         # 硬件
         self.board = None
+        self._board_connected = False  # 扩展板连接状态标记：True 表示 start() 成功且 ws2812Init 已调用
         self.lights = None
 
         # 语音/AI
@@ -426,6 +485,7 @@ class SmartReadingApp:
         self._camera_thread = None
         self._camera_thread_running = False
         self._camera_initializing = False
+        self._camera_init_thread = None  # 摄像头初始化后台线程引用，用于 cleanup 时等待其结束
         # OCR识别期间暂停摄像头采集的标志（避免vision_system资源竞争导致卡死）
         self._camera_paused = False
 
@@ -478,14 +538,20 @@ class SmartReadingApp:
 
     # ====== 初始化 ======
     def init_pygame(self):
-        pygame.init()
+        # 先初始化日志，后续所有步骤均可记录
+        self.logger = setup_logging()
+        # Rockchip 兼容：Pygame 分段初始化，不调用 pygame.init()
+        # 原因：pygame.init() 会一次性 init 所有子模块（joystick/CDROM/mixer 等），
+        # 在 Rockchip 平台上 joystick 等子模块驱动缺失会导致段错误。
+        # mixer 用 pre_init 设置参数后再 init（pre_init 必须在 mixer.init 之前）。
+        pygame.display.init()
         pygame.font.init()
         try:
             pygame.mixer.pre_init(44100, -16, 2, 512)
             pygame.mixer.init()
             self.mixer_ok = True
         except Exception as e:
-            print(f'pygame.mixer初始化失败(视频将无声音): {e}')
+            self.logger.warning('pygame.mixer初始化失败(视频将无声音): %s', e)
         self.window = pygame.display.set_mode((WINDOW_W, WINDOW_H))
         pygame.display.set_caption('智慧阅读角')
         self.font_title = find_chinese_font(90)
@@ -494,7 +560,6 @@ class SmartReadingApp:
         self.font_btn = find_chinese_font(36)
         self.font_small = find_chinese_font(28)
         self.font_author = find_chinese_font(34)
-        self.logger = setup_logging()
         self.logger.info('Pygame窗口初始化完成 (1920x1080), mixer=%s', self.mixer_ok)
         # 预渲染背景渐变表面（避免每帧重绘1080条线导致主循环卡顿、点击丢失）
         self._bg_surface = pygame.Surface((WINDOW_W, WINDOW_H))
@@ -502,7 +567,20 @@ class SmartReadingApp:
         self.logger.info('背景渐变表面已缓存')
 
     def init_hardware(self):
-        self.board = ESP32()
+        if not _ESP32_AVAILABLE:
+            msg = '警告：ESP32 模块导入失败（%s），硬件功能不可用' % _ESP32_ERROR
+            print(msg)
+            if self.logger:
+                self.logger.warning(msg)
+            return False
+        try:
+            self.board = ESP32()
+        except Exception as e:
+            msg = '警告：ESP32 实例化异常（%s），硬件功能不可用' % e
+            print(msg)
+            if self.logger:
+                self.logger.warning(msg)
+            return False
         if not self.board.start():
             msg = '警告：扩展板连接异常，硬件功能不可用'
             print(msg)
@@ -516,6 +594,7 @@ class SmartReadingApp:
         self.lights.start()
         # 启动 PIR 后台轮询线程（主线程不再直接访问串口读 PIR）
         self._start_pir_thread()
+        self._board_connected = True  # 标记扩展板连接成功，后续 cleanup 才操作硬件
         msg = '扩展板连接成功，RGB灯带已启动 (11灯珠, pin=2)'
         print(msg)
         if self.logger:
@@ -523,13 +602,21 @@ class SmartReadingApp:
         return True
 
     def init_vision_system(self):
+        if not _VISION_SYSTEM_AVAILABLE:
+            if self.logger:
+                self.logger.error('camera_vision_system_v3 导入失败: %s', _VISION_SYSTEM_ERROR)
+            return
+        if not _TEXT_RECOGNITION_AVAILABLE:
+            if self.logger:
+                self.logger.error('text_recognition 导入失败: %s（OCR功能不可用）', _TEXT_RECOGNITION_ERROR)
         try:
             self.vision_system = create_vision_system_v3(
                 camera_id=-1, width=1280, height=720,
                 enable_basic=False, enable_advanced=False
             )
-            self.ocr = TextRecognizer()
-            msg = '视觉系统+OCR识别器初始化成功'
+            if _TEXT_RECOGNITION_AVAILABLE:
+                self.ocr = _TextRecognizer()
+            msg = '视觉系统初始化成功，OCR=%s' % (_TEXT_RECOGNITION_AVAILABLE and '可用' or '不可用')
             print(msg)
             if self.logger:
                 self.logger.info(msg)
@@ -538,6 +625,17 @@ class SmartReadingApp:
                 self.logger.error('视觉系统初始化失败: %s', e)
 
     def init_voice(self):
+        if not _VOICE_API_AVAILABLE or not _AUDIO_PLAYER_AVAILABLE or not _AUDIO_RECORDER_AVAILABLE:
+            err = []
+            if not _VOICE_API_AVAILABLE:
+                err.append('voice_api: %s' % _VOICE_API_ERROR)
+            if not _AUDIO_PLAYER_AVAILABLE:
+                err.append('audio_player: %s' % _AUDIO_PLAYER_ERROR)
+            if not _AUDIO_RECORDER_AVAILABLE:
+                err.append('audio_recorder: %s' % _AUDIO_RECORDER_ERROR)
+            if self.logger:
+                self.logger.error('语音AI模块导入失败: %s', '; '.join(err))
+            return
         try:
             self.voice_api = VoiceAPI('http://www.haohaodada.com/project/voiceAI/ApiZNBW.php')
             self.voice_api.get_token(VOICE_USERNAME, VOICE_PASSWORD)
@@ -554,7 +652,19 @@ class SmartReadingApp:
 
     def init_camera_open(self):
         try:
+            if not self.running:
+                # 用户已退出，不再尝试打开摄像头（避免刚打开就被cleanup释放，
+                # 下次再启动时出现设备忙）
+                return
             if self.vision_system.open_camera():
+                if not self.running:
+                    # open_camera() 期间用户退出了：立即关闭摄像头，不启动采集线程
+                    try:
+                        self.vision_system.cleanup()
+                    except Exception:
+                        pass
+                    self.camera_ok = False
+                    return
                 self.camera_ok = True
                 msg = '摄像头初始化成功'
                 print(msg)
@@ -562,12 +672,13 @@ class SmartReadingApp:
                     self.logger.info(msg)
                 self._start_camera_thread()
             else:
-                msg = '警告：摄像头打开失败'
-                print(msg)
-                if self.logger:
-                    self.logger.warning(msg)
+                if self.running:
+                    msg = '警告：摄像头打开失败'
+                    print(msg)
+                    if self.logger:
+                        self.logger.warning(msg)
         except Exception as e:
-            if self.logger:
+            if self.logger and self.running:
                 self.logger.error('摄像头初始化异常: %s', e)
 
     def set_light(self, mode):
@@ -585,12 +696,12 @@ class SmartReadingApp:
             if self.player:
                 try:
                     self.player.stop()
-                except:
+                except Exception:
                     pass
             if self.mixer_ok:
                 try:
                     pygame.mixer.music.stop()
-                except:
+                except Exception:
                     pass
 
     # ====== 摄像头后台采集线程 ======
@@ -609,7 +720,7 @@ class SmartReadingApp:
             try:
                 if self._camera_thread.is_alive():
                     self._camera_thread.join(timeout=2.0)
-            except:
+            except Exception:
                 pass
             self._camera_thread = None
         if self.logger:
@@ -623,19 +734,28 @@ class SmartReadingApp:
                     time.sleep(0.05)
                     continue
                 if self.vision_system and self.camera_ok:
-                    # capture_frame / refresh_results 可能阻塞，必须在锁外执行
+                    # capture_frame 可能阻塞，必须在锁外执行
                     # 否则OCR线程和主线程draw_guide拿不到锁会卡死
-                    try:
-                        self.vision_system.result_accessor.refresh_results()
-                    except:
-                        pass
+                    # 注意：本项目用独立 TextRecognizer 做 OCR，不依赖 vision_system
+                    # 的检测结果，因此不再调用 result_accessor.refresh_results()
+                    # （refresh_results 是为 get_*_detection 结果服务的，此处冗余）
                     frame = self.vision_system.capture_frame()
-                    if frame is not None:
-                        # 只有赋值复制时才加锁，锁持有时间极短
-                        with self._camera_lock:
-                            self._latest_frame = frame.copy()
-            except:
-                pass
+                    # 帧有效性校验：3维 shape + mean 过滤全黑/全白脏帧
+                    # 用 frame.mean() 而非 gray.std()，避免 ARM 上灰度转换+标准差的高开销
+                    if (frame is not None and hasattr(frame, 'shape')
+                            and len(frame.shape) == 3 and frame.size > 0):
+                        try:
+                            m = frame.mean()
+                            valid = 5 <= m <= 250
+                        except Exception:
+                            valid = True
+                        if valid:
+                            # 只有赋值复制时才加锁，锁持有时间极短
+                            with self._camera_lock:
+                                self._latest_frame = frame.copy()
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('摄像头采集线程异常: %s', _e)
             time.sleep(1.0 / 15)
 
     # ====== 语音操作（异步线程）======
@@ -1400,13 +1520,15 @@ class SmartReadingApp:
                         try:
                             self.video_frame_queue.get_nowait()
                             self.video_frame_queue.put_nowait(surf)
-                        except:
+                        except Exception:
                             pass
-                except:
-                    pass
+                except Exception as _e:
+                    if self.logger:
+                        self.logger.debug('视频帧处理异常: %s', _e)
                 time.sleep(1.0 / 30)
-        except:
-            pass
+        except Exception as _e:
+            if self.logger:
+                self.logger.warning('视频播放线程异常: %s', _e)
         finally:
             try:
                 if cap is not None:
@@ -1850,43 +1972,84 @@ class SmartReadingApp:
         print(msg)
         if self.logger:
             self.logger.info(msg)
+
+        # ---- 第一步：先标记 self.running=False，通知所有后台线程主动退出 ----
+        # （主循环正常退出时 running 已经是 False，但防御式置位不影响）
+        self.running = False
+
         try:
             self._stop_video_internal(blocking=True)
-        except:
-            pass
+        except Exception as _e:
+            if self.logger:
+                self.logger.warning('停止视频异常: %s', _e)
+
+        # ---- 关键：等待摄像头初始化后台线程结束（最多等5秒）----
+        # 原因：如果用户在 open_camera() 阻塞期间退出，_camera_init_thread 还在跑；
+        # 如果不等它结束就做 vision_system.cleanup，会出现：
+        #   1) "摄像头采集线程已停止" → "摄像头打开失败" 这种日志顺序错乱
+        #   2) vision_system 刚释放完 init_camera_open 又在另一个线程里用它
+        if self._camera_init_thread is not None:
+            try:
+                if self._camera_init_thread.is_alive():
+                    if self.logger:
+                        self.logger.info('等待摄像头初始化线程结束...')
+                    self._camera_init_thread.join(timeout=5.0)
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('等待摄像头初始化线程异常: %s', _e)
+            finally:
+                self._camera_init_thread = None
+
         try:
             self._stop_camera_thread()
-        except:
-            pass
+        except Exception as _e:
+            if self.logger:
+                self.logger.warning('停止摄像头线程异常: %s', _e)
         try:
             self._stop_pir_thread()
-        except:
-            pass
+        except Exception as _e:
+            if self.logger:
+                self.logger.warning('停止PIR线程异常: %s', _e)
         if self.lights:
             self.lights.stop()
+        # 视觉系统清理：本项目未启动 threaded_system.start_background_detection
+        # （只用 open_camera + capture_frame），因此 cleanup 不需要 stop_background_detection
         if self.vision_system:
             try:
                 self.vision_system.cleanup()
-            except:
-                pass
+                if self.logger:
+                    self.logger.info('视觉系统资源已释放')
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('视觉系统清理异常: %s', _e)
         if self.ocr:
             try:
                 self.ocr.cleanup()
-            except:
-                pass
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('OCR清理异常: %s', _e)
         if self.player:
             try:
                 self.player.cleanup()
-            except:
-                pass
-        if self.board:
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('player清理异常: %s', _e)
+        # 灯带关闭双重保护：仅在 _board_connected=True（start+ws2812Init都成功）且 board 对象
+        # 具备 device 属性时才写入，避免扩展板未连接/连接失败场景触发 AttributeError
+        if self._board_connected and self.board is not None and hasattr(self.board, 'device'):
             try:
                 self.board.ws2812Write(RGB_PIN, 255, 0, 0, 0)
-            except:
-                pass
+            except Exception as _e:
+                if self.logger:
+                    self.logger.warning('关闭RGB灯带异常: %s', _e)
         try:
             cv2.destroyAllWindows()
-        except:
+        except Exception:
+            pass
+        # mixer 在 init_pygame 中初始化，退出时统一 quit
+        try:
+            pygame.mixer.quit()
+        except Exception:
             pass
         pygame.quit()
         msg = '资源清理完成'
@@ -1896,6 +2059,14 @@ class SmartReadingApp:
             self.logger.info('=' * 60)
             self.logger.info('智慧阅读角程序正常结束')
             self.logger.info('=' * 60)
+            # 显式关闭并移除 logging handlers，确保日志 flush 到磁盘
+            for h in list(self.logger.handlers):
+                try:
+                    h.flush()
+                    h.close()
+                except Exception:
+                    pass
+                self.logger.removeHandler(h)
 
     # ====== 主循环 ======
     def run(self):
@@ -1949,8 +2120,8 @@ class SmartReadingApp:
 
         # ====== 摄像头初始化放后台线程（最慢，不阻塞主循环，PIR可立即工作）======
         self._camera_initializing = True
-        cam_init_thread = threading.Thread(target=self._init_camera_background, daemon=True)
-        cam_init_thread.start()
+        self._camera_init_thread = threading.Thread(target=self._init_camera_background, daemon=True)
+        self._camera_init_thread.start()
 
         self.set_light('welcome')
         self.state = self.S_WELCOME
@@ -1979,17 +2150,34 @@ class SmartReadingApp:
             self.cleanup()
 
     def _init_camera_background(self):
-        """后台初始化摄像头（最慢的步骤，放后台不阻塞主循环和PIR检测）"""
+        """后台初始化摄像头（最慢的步骤，放后台不阻塞主循环和PIR检测）
+
+        注意：用户可能在摄像头初始化过程中退出程序（self.running=False），
+        必须在每个关键节点检查 self.running，避免：
+        1. 用户已退出但 open_camera() 还在阻塞，cleanup 结束后才打印"打开失败"
+        2. open_camera() 刚成功，正要启动采集线程，但 cleanup 已释放 vision_system
+        """
         try:
+            # 入口检查：用户已经退出，直接跳过
+            if not self.running:
+                return
             self._init_stage = '正在启动摄像头...'
-            self.init_camera_open()
+            # 再次检查 running：open_camera() 可能阻塞几秒，
+            # 如果用户在这期间退出（running 变 False），init_camera_open 内部也会提前返回
+            if self.running:
+                self.init_camera_open()
         except Exception as e:
-            if self.logger:
+            if self.logger and self.running:
                 self.logger.error('摄像头后台初始化异常: %s', e)
         finally:
             self._camera_initializing = False
             if self.logger:
-                self.logger.info('摄像头后台初始化流程结束 (camera_ok=%s)', self.camera_ok)
+                if self.running:
+                    self.logger.info('摄像头后台初始化流程结束 (camera_ok=%s)', self.camera_ok)
+                else:
+                    # 用户已退出：不要打印"camera_ok=False"的误导性日志
+                    # （摄像头初始化被用户打断，不是真的打开失败）
+                    self.logger.info('摄像头后台初始化流程已中止（用户退出）(camera_ok=%s)', self.camera_ok)
 
 
 # ==================== 入口 ====================

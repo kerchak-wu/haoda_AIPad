@@ -32,7 +32,7 @@
     使用视觉系统当前捕获的帧），与人脸学习 learn_new_face(frame=...) 不同。
   - 因此不能使用 cv2 VideoCapture，必须用 vision_system.capture_frame() 获取帧
     用于界面显示，避免与视觉系统的 V4L2 设备冲突。
-  - 采集线程固定 0.15s 睡眠，frame_lock 保护 raw_frame 读写。
+  - 采集线程 0.05s 睡眠（≈20fps），frame_lock 保护 raw_frame 读写。
 
 模块调用示例：
   from 物体学习 import ObjectLearner
@@ -49,6 +49,11 @@ import signal
 import threading
 import sys
 
+# Rockchip 平台兼容性补丁：强制 libGL 软件渲染，避免 Mali GPU 驱动加载失败
+# 必须在 import pygame 之前设置
+import os
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
 import pygame
 import cv2
 import numpy as np
@@ -64,15 +69,14 @@ from camera_vision_system_v3 import create_vision_system_v3
 #   2. 文件名含程序名+日期时间，不会覆盖上次的日志
 #   3. 用追加模式 'a'，同一程序多次运行追加到当天日志
 #   4. 用块缓冲(buffering=-1)而非行缓冲，避免后台检测线程高频写日志阻塞主循环
-import os as _os
 import datetime as _datetime
 _LOG_DIR = 'logs'
-if not _os.path.exists(_LOG_DIR):
+if not os.path.exists(_LOG_DIR):
     try:
-        _os.makedirs(_LOG_DIR)
+        os.makedirs(_LOG_DIR)
     except Exception:
         pass
-_LOG_FILE = _os.path.join(
+_LOG_FILE = os.path.join(
     _LOG_DIR,
     '物体学习_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
 )
@@ -219,15 +223,6 @@ class ObjectLearner:
         # 启动后台检测（show_preview=False，不弹 OpenCV 窗口）
         self.vision_system.threaded_system.start_background_detection(show_preview=False)
         print('物体识别后台检测已启动')
-
-        # 调试：列出可用方法，便于排查
-        try:
-            vs_methods = [m for m in dir(self.vision_system) if not m.startswith('_')]
-            ra_methods = [m for m in dir(self.vision_system.result_accessor) if not m.startswith('_')]
-            print('[调试] vision_system 方法: %s' % vs_methods)
-            print('[调试] result_accessor 方法: %s' % ra_methods)
-        except Exception as e:
-            print('[调试] 列举方法失败:', e)
 
     def _capture_loop(self):
         """后台采集线程：调用 capture_frame() 获取帧用于界面显示
@@ -592,7 +587,9 @@ class ObjectLearnApp:
     FOOTER_H = 110
 
     def __init__(self):
-        pygame.init()
+        # Rockchip 平台兼容性补丁：分段初始化，跳过 pygame.mixer
+        # 避免音频驱动与 V4L2 摄像头驱动产生死锁导致段错误
+        pygame.display.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('物体学习')

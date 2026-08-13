@@ -26,9 +26,9 @@
 | 灯效驱动 | 7 种动态灯效（火焰/流光/呼吸/追逐/心跳/闪烁），由主循环按帧驱动 |
 | 手势防抖 | 连续 3 帧识别到同一手势才切换灯效，避免误触 |
 | 灯效对照表 | 右侧面板显示所有手势-灯效映射，当前项高亮显示 |
-| 退出方式 | 界面「退出程序」按钮 / ESC 键 / 窗口关闭按钮 |
+| 退出方式 | 界面右上角标题栏内「退出程序」按钮 / ESC 键 / 窗口关闭按钮 |
 | 后台处理 | 采集线程与识别线程分离，主循环零阻塞 |
-| 资源清理 | 退出时关闭摄像头、释放 Mediapipe 资源、熄灭灯带 |
+| 资源清理 | 退出时关闭摄像头、释放 Mediapipe 资源、熄灭灯带、关闭日志文件 |
 
 ## 三、手势-灯效映射
 
@@ -53,16 +53,23 @@ haoda_AIPad/
 ├── 手势控制RGB灯带项目说明文档.md    # 本文档
 ├── images/
 │   └── 1.jpg                        # 背景图（1920×1080）
+├── logs/                            # 日志目录（运行时自动创建）
+│   └── 手势控制RGB灯带_YYYYMMDD.log # 按日期命名的运行日志（追加模式）
 ├── 字体文件/                         # 系统字体源文件（参考）
 └── 好搭AI派学习手册.md               # 硬件 API 参考
 ```
+
+### 资源文件说明
+
+- `images/1.jpg`：背景图片，程序启动时加载。如缺失或加载失败，会自动生成浅蓝渐变背景，不影响运行。
+- `logs/手势控制RGB灯带_YYYYMMDD.log`：运行日志，记录所有 `print` 输出（含异常堆栈），用于事后排查问题。每次运行追加写入，文件名按当天日期生成。
 
 ## 五、硬件接线
 
 | 接口 | 设备 | 说明 |
 | --- | --- | --- |
 | IO1 (GPIO_IO_01) | WS2812 RGB 灯带 | 4 颗灯珠，需接上拉扩展模块 |
-| USB | 外接摄像头 | 系统识别为 `/dev/video40` 或 `/dev/video41` |
+| ESP32 扩展板 USB 口 | 外接摄像头 | 系统识别为 `/dev/video40` 或 `/dev/video41` |
 
 > 注意：好搭AI派右下角开关需拨到左侧以启用外设接口。
 
@@ -88,7 +95,7 @@ python3 手势控制RGB灯带.py
 
 1. 程序自动探测 `/dev/video41` 和 `/dev/video40`，打开第一个可用的摄像头
 2. 将手对准摄像头做出手势，连续 3 帧确认后切换灯效
-3. 点击界面右下角「退出程序」按钮或按 ESC 退出
+3. 点击界面右上角标题栏内「退出程序」按钮或按 ESC 退出
 
 ## 八、关键实现说明
 
@@ -99,7 +106,7 @@ python3 手势控制RGB灯带.py
 - **设备节点路径方式打开**：`cv2.VideoCapture('/dev/video41')`，避免整数索引越界
 - **MJPG 编码**：`cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))`，解决默认格式导致的雪花/绿屏
 - **SIGALRM 超时**：探测时设置 4 秒超时，打断卡在 `select()` 的 V4L2 设备
-- **雪花检测**：通过帧的 std 和缩放后 std 的比值，过滤噪声帧
+- **帧有效性检测**：通过 `gray.mean()` 检测全黑/全白帧（项目记忆：ARM 设备上 `std()` 计算开销过大，改用 `mean()`）
 
 ### 2. 手势识别算法
 
@@ -208,6 +215,56 @@ pygame.draw.rect(panel, (*PANEL_COLOR, 170), panel.get_rect(), border_radius=18)
 - 面板颜色 alpha 设为 170（0-255），背景图片可透过面板显示
 - 同时保持文字清晰可读
 
+### 6. Rockchip 平台兼容性补丁
+
+为避免 Rockchip 平台（RK3566/RK3568）上 Pygame 与 OpenCV 的底层驱动冲突（GPU 驱动加载失败、音频驱动与 V4L2 死锁），程序开头加入三处补丁（参考《视觉系统摄像头调用参考方案》第 7 章）：
+
+```python
+import os
+# 1. 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
+# 2. 导入顺序：先 pygame 再 cv2（pygame 先导入让 SDL 接管视频子系统）
+import pygame
+import cv2
+
+# 3. 分段初始化（不调用 pygame.init()），避免 pygame.mixer 导致原生崩溃
+pygame.display.init()
+pygame.font.init()
+```
+
+**作用说明**：
+- `LIBGL_ALWAYS_SOFTWARE=1`：强制 OpenGL 使用软件渲染，绕过 Mali GPU 驱动缺陷
+- import 顺序：pygame 先导入让 SDL 接管视频子系统，cv2 不会再重复初始化 OpenGL
+- 分段初始化：跳过音频模块，防止音频驱动与摄像头 V4L2 驱动产生死锁
+
+### 7. 日志输出机制
+
+程序启动时在 `logs/` 目录下创建按日期命名的日志文件，所有 `print` 输出（含异常堆栈）同时写入控制台和日志文件，便于事后排查问题。
+
+```python
+# 日志文件：logs/手势控制RGB灯带_YYYYMMDD.log，追加模式，块缓冲
+_LOG_DIR = 'logs'
+_LOG_FILE = os.path.join(_LOG_DIR, '手势控制RGB灯带_%s.log' %
+                         _datetime.datetime.now().strftime('%Y%m%d'))
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+
+# TeeStdout 包装 stdout/stderr，print 同时写入控制台和文件
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
+```
+
+**设计要点**：
+- **目录与命名**：`logs/` 目录、`手势控制RGB灯带_YYYYMMDD.log`，符合项目日志规范
+- **追加模式（`'a'`）**：同一天多次运行不会覆盖历史日志，每次运行写入 `======== 时间 运行开始 ========` 分隔
+- **块缓冲（`buffering=-1`）**：避免高频 `print` 阻塞主循环
+- **TeeStdout 包装**：无需修改业务代码中的 `print` 语句，自动双写
+- **退出关闭**：`run()` 退出清理末尾关闭文件指针，防止日志丢失
+
+### 8. 帧缩放方式
+
+使用 `pygame.transform.scale`（非 `smoothscale`）进行摄像头帧缩放，降低 CPU 开销（项目记忆：smoothscale 对摄像头帧缩放有显著 CPU 开销）。
+
 ## 九、开发提示词（可复用经验）
 
 以下是本项目开发时使用的提示词，可作为后续好搭AI派项目开发的模板参考：
@@ -297,10 +354,49 @@ pygame.draw.rect(panel, (*PANEL_COLOR, 170), panel.get_rect(), border_radius=18)
 我已安装[已装库]库，如果需要安装其他库提示我。
 ```
 
-## 十、扩展方向
+## 十、常见问题
+
+### Q1：程序启动后提示"摄像头打开失败"
+
+**A**：检查以下几点：
+
+1. USB 摄像头是否插入 ESP32 扩展板的 USB 口
+2. 右下角开关是否拨到左侧（USB 摄像头模式）
+3. 终端执行 `ls /dev/video*` 确认设备节点是否存在
+4. 确认没有其他程序占用摄像头
+
+### Q2：程序启动后立即崩溃（段错误）
+
+**A**：通常是 Rockchip 平台兼容性问题，确认以下几点：
+
+1. 程序开头已设置 `LIBGL_ALWAYS_SOFTWARE=1` 环境变量
+2. 未调用 `pygame.init()`，改用 `pygame.display.init()` + `pygame.font.init()` 分段初始化
+3. import 顺序为先 `pygame` 再 `cv2`，不可颠倒
+
+### Q3：画面卡顿
+
+**A**：按以下顺序尝试：
+
+1. 确认 `cvframe_to_surface` 使用 `pygame.transform.scale` 而非 `smoothscale`
+2. 确认主循环帧率为 30 FPS
+3. 检查终端日志（`logs/手势控制RGB灯带_YYYYMMDD.log`）是否有异常循环
+
+### Q4：日志文件在哪里查看
+
+**A**：日志文件位于程序同目录下的 `logs/` 文件夹，文件名格式为 `手势控制RGB灯带_YYYYMMDD.log`（如 `手势控制RGB灯带_20260811.log`）。程序崩溃或异常退出后，可在日志文件中查看完整的 `print` 输出和异常堆栈，用于事后排查。同一天多次运行会追加到同一文件，以 `======== 时间 运行开始 ========` 分隔。
+
+### Q5：为什么不再检测雪花噪声帧
+
+**A**：旧版本通过 `frame.std()` 检测雪花噪声帧，但在 ARM 设备（rockchip RK 平台）上 `std()` 计算开销过大，会拖慢采集线程。现改为 `gray.mean()` 仅检测全黑/全白帧（阈值 `< 10` 或 `> 245`），在保证基本有效性的前提下降低 CPU 开销。
+
+### Q6：退出按钮在哪里
+
+**A**：退出按钮位于界面右上角标题栏内（`WIDTH-280, 30, 240×70`），不在底部栏。点击该按钮或按 ESC 键均可退出程序。底部栏仅显示操作提示信息。
+
+## 十一、扩展方向
 
 - 增加更多手势（如石头剪刀布的三种手势完整识别）
 - 支持双手同时识别，分别控制两条灯带
 - 增加语音播报当前手势名称
 - 将手势映射为智能家居控制指令（通过 MQTT 发送）
-- 增加手势学习模式，支持用户自定义手势
+- 增加手势学习模式，支持用户自定义手�

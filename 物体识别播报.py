@@ -34,7 +34,7 @@
     由 result_accessor.refresh_results() 轮询识别结果。
   - 不使用 cv2 VideoCapture，必须用 vision_system.capture_frame() 获取帧
     用于界面显示，避免与视觉系统的 V4L2 设备冲突。
-  - 采集线程固定 0.15s 睡眠，frame_lock 保护 raw_frame 读写。
+  - 采集线程 0.05s 睡眠（≈20fps），frame_lock 保护 raw_frame 读写。
 """
 
 import os
@@ -42,6 +42,10 @@ import json
 import time
 import threading
 import sys
+
+# Rockchip 平台兼容性补丁：强制 libGL 软件渲染，避免 Mali GPU 驱动加载失败
+# 必须在 import pygame 之前设置
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
 import pygame
 import cv2
@@ -363,7 +367,9 @@ class ObjectRecognizeApp:
     FOOTER_H = 110
 
     def __init__(self):
-        pygame.init()
+        # Rockchip 平台兼容性补丁：分段初始化（不调用 pygame.init()）
+        # 保留 mixer 用于 TTS 音频播放，跳过 joystick/CDROM 等不必要模块
+        pygame.display.init()
         pygame.font.init()
         pygame.mixer.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -461,7 +467,7 @@ class ObjectRecognizeApp:
         """后台采集线程：调用 capture_frame() 获取帧用于界面显示
 
         关键改进（参考人脸识别灯效.py 已验证模式）：
-        1. 固定 0.15s 睡眠（无论成功失败），不紧循环调用
+        1. 0.05s 睡眠 ≈ 20fps 采集，保证画面流畅
         2. 帧有效性验证，跳过损坏帧
         3. capture_frame() 只读缓存，不访问 V4L2，与后台检测线程不冲突
         """
@@ -479,8 +485,8 @@ class ObjectRecognizeApp:
             except Exception as e:
                 if self.capture_running:
                     print('采集帧异常:', e)
-            # 固定 0.15s 睡眠，避免紧循环
-            time.sleep(0.15)
+            # 0.05s 睡眠 ≈ 20fps 采集，capture_frame() 只读缓存不访问 V4L2，与后台检测线程不冲突
+            time.sleep(0.05)
 
     def get_current_frame(self):
         """获取当前摄像头帧的副本（线程安全）"""
@@ -493,12 +499,16 @@ class ObjectRecognizeApp:
 
     # ===================== 识别与播报 =====================
     def recognize_current(self):
-        """识别当前画面中的物体（严格参照范例代码 5.12）
+        """识别当前画面中的物体（严格参照范例代码 5.12 + API 分析报告 5.9）
 
         范例 5.12 的调用方式：
             result_accessor.refresh_results()
             class_name = result_accessor.get_object_recognition_class_name()
             confidence = result_accessor.get_object_recognition_confidence()
+
+        本程序在范例基础上增加 success 判断（API 报告 5.9 提供）：
+            success = result_accessor.get_object_recognition_success()
+        success 为 True 才表示成功匹配到已学习物体，比单纯判断 class_name 更可靠。
 
         注意：CompleteDetectionResultAccessor 没有 get_object_recognition_count 方法，
         api-reference.md 中的 count 调用是错误的，以范例代码为准。
@@ -510,7 +520,9 @@ class ObjectRecognizeApp:
         """
         try:
             self.vision_system.result_accessor.refresh_results()
-            # 严格参照范例 5.12：直接获取 class_name 和 confidence（无 count）
+            # 严格参照范例 5.12 + API 报告 5.9：
+            # 用 success 判断是否成功匹配，再读 class_name/confidence
+            success = self.vision_system.result_accessor.get_object_recognition_success()
             class_name = self.vision_system.result_accessor.get_object_recognition_class_name()
             confidence = self.vision_system.result_accessor.get_object_recognition_confidence()
             try:
@@ -518,8 +530,8 @@ class ObjectRecognizeApp:
             except Exception:
                 confidence = 0.0
 
-            # class_name 无效 → 未识别到物体
-            if not class_name or class_name in ('None', '未知', 'unknown', ''):
+            # success=False 或 class_name 无效 → 未识别到物体
+            if not success or not class_name or class_name in ('None', '未知', 'unknown', ''):
                 return None, confidence, False
 
             # 校验是否为已学习的物体（双重确认，避免视觉系统返回其他类别）

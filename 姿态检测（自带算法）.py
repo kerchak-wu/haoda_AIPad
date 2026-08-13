@@ -55,18 +55,35 @@ import time
 import signal
 import threading
 import sys
+import os as _os
+import datetime as _datetime
+
+# Rockchip 平台兼容性补丁（参照视觉系统摄像头调用参考方案第7章）
+# 强制 libGL 软件渲染，避免 Mali GPU 驱动在 pygame+cv2 下崩溃
+_os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
 import pygame
 import cv2
 import numpy as np
 
-from ESP32 import *
-from camera_vision_system_v3 import create_vision_system_v3
+try:
+    from ESP32 import *
+    _ESP32_AVAILABLE = True
+    _ESP32_ERROR = None
+except Exception as _e:
+    _ESP32_AVAILABLE = False
+    _ESP32_ERROR = _e
+
+try:
+    from camera_vision_system_v3 import create_vision_system_v3
+    _VISION_SYSTEM_AVAILABLE = True
+    _VISION_SYSTEM_ERROR = None
+except Exception as _e:
+    _VISION_SYSTEM_AVAILABLE = False
+    _VISION_SYSTEM_ERROR = _e
 
 
 # ===================== 日志输出（控制台 + 文件）=====================
-import os as _os
-import datetime as _datetime
 _LOG_DIR = 'logs'
 if not _os.path.exists(_LOG_DIR):
     try:
@@ -181,11 +198,23 @@ POSE_LABEL = {
 }
 
 
-# ===================== 硬件初始化 =====================
-board = ESP32()
-_board_isstarted = board.start()
-if not _board_isstarted:
-    print('[警告] 扩展板连接异常，USB摄像头接在扩展板上，姿态检测无法运行，请检查硬件接线')
+# ===================== 硬件初始化（容错）=====================
+_board_isstarted = False
+if not _ESP32_AVAILABLE:
+    print('[警告] ESP32 模块导入失败（%s），USB摄像头依赖扩展板，姿态检测将无法运行' % _ESP32_ERROR)
+else:
+    try:
+        board = ESP32()
+        _board_isstarted = board.start()
+        if not _board_isstarted:
+            print('[警告] 扩展板连接异常，USB摄像头接在扩展板上，姿态检测无法运行，请检查硬件接线')
+    except Exception as _e:
+        _board_isstarted = False
+        print('[警告] ESP32 初始化异常（%s），USB摄像头接在扩展板上，姿态检测无法运行' % _e)
+
+if not _VISION_SYSTEM_AVAILABLE:
+    print('[错误] camera_vision_system_v3 导入失败：%s' % _VISION_SYSTEM_ERROR)
+    print('姿态检测功能不可用，程序将以仅界面模式启动（用于调试）')
 
 
 # ===================== PoseDetector 姿态检测器 =====================
@@ -219,8 +248,16 @@ class PoseDetector:
         self._refresh_interval = REFRESH_NORMAL
         self._consecutive_failures = 0
 
+        self.vision_system = None
+        self.camera_ok = False
+
         # 创建视觉系统并启动后台检测（严格参照范例 18.姿态检测）
         self._init_vision_system(width, height)
+
+        # 实际摄像头分辨率（从帧 shape 动态检测，避免与硬编码 CAMERA_W/H 不一致导致坐标错位）
+        self._actual_cam_w = None
+        self._actual_cam_h = None
+        self._actual_res_lock = threading.Lock()
 
         # 启动后台采集线程（用于界面显示）
         self._raw_frame = None
@@ -234,10 +271,19 @@ class PoseDetector:
         流程：create_vision_system_v3 → 启用 pose_detection → _init_detectors
               → open_camera → start_background_detection(show_preview=False)
         """
-        self.vision_system = create_vision_system_v3(
-            camera_id=-1, width=width, height=height,
-            enable_basic=False, enable_advanced=False
-        )
+        if not _VISION_SYSTEM_AVAILABLE:
+            print('[错误] 视觉系统不可用，跳过姿态检测初始化（用于调试模式）')
+            return
+
+        try:
+            self.vision_system = create_vision_system_v3(
+                camera_id=-1, width=width, height=height,
+                enable_basic=False, enable_advanced=False
+            )
+        except Exception as _e:
+            print('[错误] create_vision_system_v3 失败：%s' % _e)
+            return
+
         # 启用姿态检测（非 mediapipe，视觉系统内置算法）
         self.vision_system.detection_config.enable_pose_detection = True
         self.vision_system._init_detectors()
@@ -254,6 +300,7 @@ class PoseDetector:
             return
 
         # 启动后台检测（show_preview=False，不弹 OpenCV 窗口）
+        # 参照 camera_vision_system_v3_API分析报告：start/stop 都在 threaded_system 下
         self.vision_system.threaded_system.start_background_detection(show_preview=False)
         print('姿态检测后台检测已启动')
 
@@ -262,36 +309,66 @@ class PoseDetector:
             ra_methods = [m for m in dir(self.vision_system.result_accessor)
                           if not m.startswith('_')]
             print('[调试] result_accessor 方法: %s' % ra_methods)
-        except Exception as e:
-            print('[调试] 列举方法失败:', e)
+        except Exception as _e:
+            print('[调试] 列举方法失败:', _e)
 
     def _capture_loop(self):
         """后台采集线程：调用 capture_frame() 获取帧用于界面显示
 
         参考人脸识别灯效已验证模式：
         1. 0.05s 睡眠 ≈ 20fps 采集，保证画面流畅
-        2. 帧有效性验证（3维 shape），跳过损坏帧
+        2. 帧有效性验证（3维 shape + mean 过滤全黑/全白帧），跳过损坏帧
         3. capture_frame() 只读缓存，不访问 V4L2，与后台检测线程不冲突
+        4. 用 frame.mean() 检测全黑/全白帧，避免 ARM 上 gray.std() 计算开销过大
         """
         time.sleep(0.5)  # 等待后台检测线程稳定
         while self._capture_running:
-            if not self.camera_ok:
+            if not self.camera_ok or self.vision_system is None:
                 time.sleep(0.3)
                 continue
             try:
                 frame = self.vision_system.capture_frame()
-                if frame is not None and hasattr(frame, 'shape') and len(frame.shape) == 3:
-                    with self._frame_lock:
-                        self._raw_frame = frame
-            except Exception as e:
+                if (frame is not None and hasattr(frame, 'shape')
+                        and len(frame.shape) == 3 and frame.size > 0):
+                    # 首次拿到有效帧时，检测实际分辨率并与请求值对比
+                    with self._actual_res_lock:
+                        if self._actual_cam_w is None:
+                            fh, fw = frame.shape[0], frame.shape[1]
+                            self._actual_cam_w = fw
+                            self._actual_cam_h = fh
+                            if (fw, fh) != (CAMERA_W, CAMERA_H):
+                                print('✓ 实际摄像头分辨率：%d×%d（请求 %d×%d，已自动适配坐标缩放基准）' % (
+                                    fw, fh, CAMERA_W, CAMERA_H))
+                            else:
+                                print('✓ 实际摄像头分辨率：%d×%d（与请求值一致）' % (fw, fh))
+                    try:
+                        m = frame.mean()
+                        if 5 <= m <= 250:
+                            with self._frame_lock:
+                                self._raw_frame = frame
+                    except Exception:
+                        with self._frame_lock:
+                            self._raw_frame = frame
+            except Exception as _e:
                 if self._capture_running:
-                    print('采集帧异常:', e)
+                    print('采集帧异常:', _e)
             time.sleep(0.05)  # ≈20fps 采集
 
     def get_current_frame(self):
         """获取当前摄像头帧的副本（线程安全）"""
         with self._frame_lock:
             return self._raw_frame.copy() if self._raw_frame is not None else None
+
+    def get_actual_resolution(self):
+        """获取实际摄像头分辨率 (w, h)；若尚未检测到，回退到 CAMERA_W/H
+
+        用于 draw_pose_overlay 的坐标缩放基准，确保即使视觉系统把请求的
+        1280×720 回退到 640×480，检测框和关键点的坐标映射仍然准确。
+        """
+        with self._actual_res_lock:
+            if self._actual_cam_w is not None and self._actual_cam_h is not None:
+                return self._actual_cam_w, self._actual_cam_h
+        return CAMERA_W, CAMERA_H
 
     def _refresh_results(self):
         """刷新姿态检测结果（带频率控制与自动降频策略）
@@ -306,7 +383,7 @@ class PoseDetector:
             return
         self._frame_counter = 0
 
-        if not self.camera_ok:
+        if not self.camera_ok or self.vision_system is None:
             return
 
         try:
@@ -362,8 +439,8 @@ class PoseDetector:
                     print('姿态检测连续 %d 次无结果，自动降频：每 %d 帧' % (
                         FAIL_THRESHOLD, REFRESH_SLOW))
                     self._refresh_interval = REFRESH_SLOW
-        except Exception as e:
-            print('刷新姿态检测结果异常:', e)
+        except Exception as _e:
+            print('刷新姿态检测结果异常:', _e)
             self._consecutive_failures += 1
             if (self._consecutive_failures >= FAIL_THRESHOLD
                     and self._refresh_interval != REFRESH_SLOW):
@@ -386,13 +463,26 @@ class PoseDetector:
             return [dict(r) for r in self._cached_results]
 
     def close(self):
-        """释放视觉系统资源"""
+        """释放视觉系统资源
+
+        清理顺序（参照 camera_vision_system_v3_API分析报告）：
+          1. 停止采集线程 → 2. threaded_system.stop_background_detection
+          → 3. vision_system.cleanup()
+        stop_background_detection 在 threaded_system 对象下，不在 vision_system 顶层。
+        """
         self._capture_running = False
         time.sleep(0.2)
-        try:
-            self.vision_system.cleanup()
-        except Exception:
-            pass
+        if self.vision_system is not None:
+            try:
+                self.vision_system.threaded_system.stop_background_detection()
+                print('已停止姿态检测后台检测线程')
+            except Exception as _e:
+                print('停止后台检测异常:', _e)
+            try:
+                self.vision_system.cleanup()
+                print('视觉系统资源已释放')
+            except Exception as _e:
+                print('视觉系统清理异常:', _e)
 
 
 # ===================== 姿态分类（几何特征 + 站立白名单）=====================
@@ -652,8 +742,8 @@ def draw_pose_overlay(frame, results, cam_src_w, cam_src_h, disp_w, disp_h):
                                   (255, 255, 255), 2)
                     cv2.putText(overlay, label, (x1 + 7, y1 - 7),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-            except Exception as e:
-                print('绘制检测框异常:', e)
+            except Exception as _e:
+                print('绘制检测框异常:', _e)
 
         # ---- 绘制关键点和骨架 ----
         kps = item.get('keypoints')
@@ -706,8 +796,8 @@ def draw_pose_overlay(frame, results, cam_src_w, cam_src_h, disp_w, disp_h):
                     if pt is not None:
                         cv2.circle(overlay, pt, 5, KP_COLOR, -1)
                         cv2.circle(overlay, pt, 7, (255, 255, 255), 1)
-            except Exception as e:
-                print('绘制关键点异常:', e)
+            except Exception as _e:
+                print('绘制关键点异常:', _e)
 
     # 叠加（半透明，让原图更清晰）
     return cv2.addWeighted(overlay, 0.85, frame, 0.15, 0)
@@ -769,8 +859,14 @@ class PoseDetectApp:
     FOOTER_H = 110
 
     def __init__(self):
-        pygame.init()
+        # Rockchip 兼容：Pygame 分段初始化，不调用 pygame.init() 以避免 mixer/joystick 在
+        # Rockchip 平台上崩溃。若需要音视频模块（当前项目未用）可单独 try/except 初始化。
+        pygame.display.init()
         pygame.font.init()
+        try:
+            pygame.mixer.init()
+        except Exception as _e:
+            print('pygame.mixer 初始化失败（不影响姿态检测）:', _e)
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('姿态检测')
         self.clock = pygame.time.Clock()
@@ -785,10 +881,12 @@ class PoseDetectApp:
         self.font_kp = pygame.font.Font(FONT_PATH, 22)
 
         # 背景：优先加载图片，失败回退渐变
+        # 注意：不使用 smoothscale（对大尺寸 CPU 开销显著），改为普通 scale
         try:
             bg_raw = pygame.image.load('images/1.jpg')
-            self.bg = pygame.transform.smoothscale(bg_raw, (WIDTH, HEIGHT)).convert()
-        except Exception:
+            self.bg = pygame.transform.scale(bg_raw, (WIDTH, HEIGHT)).convert()
+        except Exception as _e:
+            print('背景图加载失败，回退渐变背景:', _e)
             self.bg = make_gradient_bg(WIDTH, HEIGHT, BG_TOP, BG_BOTTOM).convert()
 
         # 布局：左右面板等高 820px
@@ -855,14 +953,18 @@ class PoseDetectApp:
             # 获取检测结果（用缓存，不强制刷新；每帧都会被主循环的 get_pose_results 刷新）
             results = self._last_draw_results
 
-            # 在 BGR 帧上叠加姿态可视化（坐标系：原始 CAMERA_W × CAMERA_H）
+            # 在 BGR 帧上叠加姿态可视化（坐标系使用**实际**摄像头分辨率，动态适配）
+            # 注意：CAMERA_W/H 是请求值（默认 1280×720），视觉系统可能因硬件限制回退到
+            # 640×480 等更低分辨率。此处用 get_actual_resolution() 获取真实尺寸，
+            # 保证检测框/关键点坐标映射基准与实际帧一致，避免叠加层偏小偏左上错位。
+            actual_cw, actual_ch = self.detector.get_actual_resolution()
             try:
                 vis_frame = draw_pose_overlay(
                     frame, results,
-                    CAMERA_W, CAMERA_H, CAM_DISP_W, CAM_DISP_H
+                    actual_cw, actual_ch, CAM_DISP_W, CAM_DISP_H
                 )
-            except Exception as e:
-                print('叠加姿态可视化异常:', e)
+            except Exception as _e:
+                print('叠加姿态可视化异常:', _e)
                 vis_frame = frame
 
             surf = cvframe_to_surface(vis_frame, CAM_DISP_W, CAM_DISP_H)
@@ -877,7 +979,8 @@ class PoseDetectApp:
             self.screen.blit(hint, (self.cam_rect.centerx - hint.get_width() // 2,
                                     self.cam_rect.centery - hint.get_height() // 2))
 
-        res = self.font_small.render('%d × %d' % (CAMERA_W, CAMERA_H), True, SUBTLE_COLOR)
+        actual_cw, actual_ch = self.detector.get_actual_resolution()
+        res = self.font_small.render('%d × %d' % (actual_cw, actual_ch), True, SUBTLE_COLOR)
         self.screen.blit(res, (self.cam_rect.right - res.get_width() - 20,
                                self.cam_rect.bottom - 30))
 
@@ -1140,8 +1243,8 @@ class PoseDetectApp:
                         )
                     else:
                         self.set_status('请站在摄像头前以检测姿态', SUBTLE_COLOR)
-            except Exception as e:
-                print('主循环获取检测结果异常:', e)
+            except Exception as _e:
+                print('主循环获取检测结果异常:', _e)
 
             self.screen.blit(self.bg, (0, 0))
             self.draw_title()
@@ -1155,9 +1258,15 @@ class PoseDetectApp:
         # 退出清理
         print('正在关闭程序...')
         self.detector.close()
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
         pygame.quit()
         try:
+            _debug_log_fp.flush()
             _debug_log_fp.close()
+            print('日志文件已关闭：%s' % _LOG_FILE)
         except Exception:
             pass
 

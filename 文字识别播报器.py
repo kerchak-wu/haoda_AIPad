@@ -10,7 +10,7 @@
   5. 界面排布合理，科技感深色主题
 
 硬件依赖：
-  - 摄像头（好搭AI派内置/USB 摄像头）
+  - USB 外接摄像头（接在 ESP32 扩展板 USB 口）
   - 需联网（语音 AI 在线合成）
 
 OCR 后端：使用官方 text_recognition.TextRecognizer（依赖 ppocr_system / PaddleOCR）
@@ -35,13 +35,64 @@ except Exception as _e:
     _TEXT_RECOGNITION_ERROR = _e
 
 import os
+# 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
+# 参考方案第 7 章 Rockchip 平台兼容性补丁
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
+import sys
 import time
 import threading
-import cv2
+import datetime as _datetime
+
+# 导入顺序：先 pygame 再 cv2（rockchip 平台兼容性要求）
 import pygame
-from camera_vision_system_v3 import create_vision_system_v3
+import cv2
 from voice_api import VoiceAPI
 from audio_player import AudioPlayer
+
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 参照人脸识别灯效.py / 人数实时统计.py 的日志方案：
+# logs/ 目录、程序名_YYYYMMDD.log、追加模式、块缓冲
+_LOG_DIR = 'logs'
+if not os.path.exists(_LOG_DIR):
+    try:
+        os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = os.path.join(
+    _LOG_DIR,
+    '文字识别播报器_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
 
 # ===================== 配置 =====================
 WIDTH, HEIGHT = 1920, 1080
@@ -81,23 +132,80 @@ STATUS_BUSY      = (255, 200, 60)
 STATUS_ERROR     = (255, 80, 90)
 
 
-# ===================== 视觉系统 + OCR + 语音AI 初始化 =====================
-# 严格参照用户验证可用的参考程序顺序：
-#   1. create_vision_system_v3
-#   2. TextRecognizer()  ← 必须在 open_camera 之前！ppocr_system 需在摄像头启动前初始化
-#   3. VoiceAPI / get_token / AudioPlayer
-#   4. open_camera
-#   5. start_background_detection
-# 摄像头：严格参照范例用 camera_id=-1（自动检测），SDK 只接受整数。
-# 不传 41/40（V4L2 整数索引越界），不传字符串（SDK 类型校验拒绝）。
-# 设备选择由 SDK 内部自动完成（范例 5.21 及其他 20 处范例均用 -1）。
-vision_system = create_vision_system_v3(
-    camera_id=-1, width=640, height=480,
-    enable_basic=False, enable_advanced=False
-)
-print("视觉系统初始化完成（camera_id=-1 自动检测）")
+# ===================== 摄像头（纯 cv2 模式）+ OCR + 语音AI 初始化 =====================
+# 初始化顺序：
+#   1. OCR（TextRecognizer）—— 必须在其他设备操作前初始化，避免 utils 模块冲突
+#   2. VoiceAPI / get_token / AudioPlayer
+#   3. 摄像头 cv2.VideoCapture 打开（最后，独占 USB 总线）
+#
+# 摄像头打开策略：改用纯 cv2 模式，显式指定 cv2.CAP_V4L2 后端，直接打开
+# /dev/video{N} 字符串路径，完全绕过 OpenCV FFMPEG 后端。
+# 问题背景：FFMPEG 后端的设备列表仅 32 项，camera_id >= 32（如 40/41/42）即使
+# /dev/videoN 节点存在也会触发 "Camera index out of range" 错误，每次失败约
+# 耗 4~6 秒，然后 SDK 内部再回退，导致启动极慢。V4L2 后端无 32 项限制，毫秒级完成。
+#
+# 候选顺序按用户建议：先 42，再 41，最后 40。每个候选都先检查节点存在，再用
+# CAP_V4L2 后端实际 open + read 验证，跳过"节点存在但不是视频捕获设备（元
+# 数据节点）"的情况。
+def _open_cv2_camera(target_width=640, target_height=480):
+    """按 42 → 41 → 40 顺序打开 cv2.VideoCapture（CAP_V4L2 后端，跳过 FFMPEG）。
+    返回 (cv2.VideoCapture, device_path)，失败返回 (None, '')。
+    """
+    candidates = (42, 41, 40)
+    import numpy as np
+    for cid in candidates:
+        path = '/dev/video%d' % cid
+        if not os.path.exists(path):
+            print('摄像头候选：%s（节点不存在，跳过）' % path)
+            continue
+        print('摄像头候选：%s（尝试打开…）' % path)
+        try:
+            cap = cv2.VideoCapture(path, cv2.CAP_V4L2)
+        except Exception as _e:
+            print('  cv2.VideoCapture(%s) 异常：%s' % (path, _e))
+            continue
+        if not cap.isOpened():
+            try:
+                cap.release()
+            except Exception:
+                pass
+            print('  cv2.VideoCapture(%s) isOpened=False，跳过' % path)
+            continue
+        # 设置分辨率（先设置再读帧，保证输出尺寸一致）
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
+        # 最多读 5 次验证帧有效性（参考范例的帧验证，用 mean 代替 std 省 CPU）
+        frame_ok = False
+        for _ in range(5):
+            ret, frame = cap.read()
+            if (not ret) or frame is None:
+                time.sleep(0.02)
+                continue
+            if not isinstance(frame, np.ndarray) or frame.ndim != 3:
+                time.sleep(0.02)
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            m = float(gray.mean())
+            # 排除全黑/全白雪花帧（全黑 mean<2，全白 mean>253）
+            if 2.0 < m < 253.0:
+                frame_ok = True
+                break
+            time.sleep(0.02)
+        if not frame_ok:
+            try:
+                cap.release()
+            except Exception:
+                pass
+            print('  cv2.VideoCapture(%s) 帧有效性验证失败，跳过' % path)
+            continue
+        print('✓ 摄像头已打开：%s（分辨率 %dx%d，CAP_V4L2 后端）' % (
+            path, target_width, target_height))
+        return cap, path
+    print('警告：42/41/40 三个候选均无法以 V4L2 后端打开，请检查硬件连接')
+    return None, ''
 
-# ---- OCR 初始化（必须在 open_camera 之前）----
+
+# ---- OCR 初始化（必须在摄像头打开之前初始化完成）----
 # text_recognition 已在文件最顶部导入（避免 utils 模块名冲突）
 # 使用官方 text_recognition.TextRecognizer（依赖 ppocr_system / PaddleOCR）
 ocr_recognizer = None
@@ -120,14 +228,12 @@ if not token_result:
 else:
     print('语音 AI 认证成功')
 
-# ---- 摄像头打开 + 后台检测（OCR 必须在此之前完成初始化）----
-if vision_system.open_camera():
-    print("摄像头已打开（自动检测模式）")
+# ---- 摄像头打开（纯 cv2 模式，显式 CAP_V4L2 后端，跳过 FFMPEG，毫秒级完成）----
+_cv2_cap, _camera_path = _open_cv2_camera(640, 480)
+if _cv2_cap is None:
+    print('警告：摄像头打开失败，请检查硬件连接（/dev/video42, /dev/video41, /dev/video40）')
 else:
-    print("警告：摄像头打开失败，请检查硬件连接")
-# 不显示 OpenCV 自带预览窗口，改由 Pygame 界面显示画面
-vision_system.threaded_system.start_background_detection(show_preview=False)
-print("摄像头后台检测已启动，画面将在 Pygame 界面中显示")
+    print('cv2 摄像头采集就绪，画面将在 Pygame 界面中显示')
 
 
 def ocr_recognize(frame, confidence_threshold=OCR_CONFIDENCE):
@@ -343,9 +449,15 @@ class OCRApp:
     RESULT_H = 800
 
     def __init__(self):
-        pygame.init()
+        # 分段初始化（不调用 pygame.init()），避免 pygame.mixer 导致原生崩溃
+        # 参考方案第 7 章 Rockchip 平台兼容性补丁
+        pygame.display.init()
         pygame.font.init()
-        pygame.mixer.init()
+        # mixer 需用于语音播报，单独初始化并容错（Rockchip 平台音频驱动可能崩溃）
+        try:
+            pygame.mixer.init()
+        except Exception as e:
+            print('pygame.mixer 初始化失败，语音播报功能不可用:', e)
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('文字识别播报系统')
         self.clock = pygame.time.Clock()
@@ -375,11 +487,13 @@ class OCRApp:
         self.current_frame = None   # 当前摄像头帧（OpenCV BGR）
 
         # 按钮
+        # 识别 / 停止播报按钮在底部栏；退出按钮在右上角标题栏内（符合项目记忆）
         btn_y = HEIGHT - self.FOOTER_H + 38
         btn_h = 70
         self.btn_recog = Button((24, btn_y, 240, btn_h), '识别', BTN_RECOG_COLOR, BTN_RECOG_HOVER)
         self.btn_stop  = Button((290, btn_y, 240, btn_h), '停止播报', BTN_STOP_COLOR, BTN_STOP_HOVER)
-        self.btn_exit  = Button((WIDTH - 264, btn_y, 240, btn_h), '退出', BTN_EXIT_COLOR, BTN_EXIT_HOVER)
+        # 标题栏高度 110，按钮高度 70，垂直居中 y = (110-70)/2 = 20
+        self.btn_exit  = Button((WIDTH - 280, 20, 240, btn_h), '退出', BTN_EXIT_COLOR, BTN_EXIT_HOVER)
 
         # 扫描线动画
         self.scan_y = 0
@@ -393,18 +507,32 @@ class OCRApp:
 
     # ---------- 后台帧抓取线程 ----------
     def _frame_capture_worker(self):
-        """后台线程：持续抓帧做缓冲，避免 capture_frame 阻塞主循环。不做连接状态判定。"""
+        """后台线程：持续抓帧做缓冲，避免 cap.read() 阻塞主循环。纯 cv2 模式。"""
+        import numpy as _np
+        # 失败计数：连续失败 3 次降频，恢复后回到正常频率
+        normal_interval = 0.05   # ≈20 fps
+        slow_interval = 0.33     # ≈3 fps（失败时降频，项目记忆要求）
+        fail_streak = 0
         while self._frame_thread_running:
+            if _cv2_cap is None:
+                time.sleep(slow_interval)
+                continue
+            frame = None
             try:
-                # 必须先 refresh_results，否则 capture_frame 可能返回 None（参照范例 5.21）
-                vision_system.result_accessor.refresh_results()
-                frame = vision_system.capture_frame()
-                if frame is not None:
-                    with self._frame_lock:
-                        self._latest_bgr = frame
+                ret, f = _cv2_cap.read()
+                if ret and f is not None and isinstance(f, _np.ndarray) and f.ndim == 3:
+                    frame = f
             except Exception:
                 pass
-            time.sleep(0.01)  # 小憩，避免 CPU 占满
+            if frame is not None:
+                fail_streak = 0
+                with self._frame_lock:
+                    self._latest_bgr = frame
+            else:
+                fail_streak += 1
+            # 正常 0.05s，连续失败 3 次降到 0.33s
+            interval = slow_interval if fail_streak >= 3 else normal_interval
+            time.sleep(interval)
 
     # ---------- 摄像头帧获取与转换 ----------
     def grab_frame(self):
@@ -434,8 +562,8 @@ class OCRApp:
         return pygame.transform.scale(surf, (new_w, new_h)), new_w, new_h
 
     # ---------- 绘制 ----------
-    def draw_title(self):
-        """绘制顶部标题栏"""
+    def draw_title(self, mouse_pos):
+        """绘制顶部标题栏（含右上角退出按钮）"""
         # 半透明遮罩
         mask = pygame.Surface((WIDTH, self.TITLE_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (0, 10, 30, 180), mask.get_rect())
@@ -451,6 +579,10 @@ class OCRApp:
             'TEXT  RECOGNITION  &  VOICE  BROADCAST   |   摄像头实时画面  ->  OCR识别  ->  语音播报',
             True, SUBTLE_COLOR)
         self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, 78))
+
+        # 退出按钮（右上角标题栏内）
+        self.btn_exit.update(mouse_pos)
+        self.btn_exit.draw(self.screen, self.font_btn)
 
     def draw_camera_panel(self, mouse_pos):
         """绘制摄像头画面区域"""
@@ -614,7 +746,7 @@ class OCRApp:
                 cy += surf.get_height() + 6
 
     def draw_footer(self, mouse_pos):
-        """绘制底部按钮栏"""
+        """绘制底部按钮栏（退出按钮已移至标题栏右上角）"""
         # 半透明遮罩
         mask = pygame.Surface((WIDTH, self.FOOTER_H), pygame.SRCALPHA)
         pygame.draw.rect(mask, (0, 10, 30, 180), mask.get_rect())
@@ -623,16 +755,14 @@ class OCRApp:
         pygame.draw.line(self.screen, ACCENT_CYAN,
                          (0, HEIGHT - self.FOOTER_H), (WIDTH, HEIGHT - self.FOOTER_H), 2)
 
-        # 按钮状态更新
+        # 按钮状态更新（退出按钮已在 draw_title 中处理）
         self.btn_recog.update(mouse_pos)
         self.btn_stop.update(mouse_pos)
-        self.btn_exit.update(mouse_pos)
         # 识别/播报中禁用识别按钮；播报中启用停止按钮
         self.btn_recog.enabled = not is_recognizing and not is_playing
         self.btn_stop.enabled = is_playing or is_recognizing
         self.btn_recog.draw(self.screen, self.font_btn)
         self.btn_stop.draw(self.screen, self.font_btn)
-        self.btn_exit.draw(self.screen, self.font_btn)
 
         # 状态文字
         status = self.font_status.render(status_message, True, status_color)
@@ -640,7 +770,7 @@ class OCRApp:
 
         # 操作提示
         hint = self.font_small.render(
-            '快捷键:  空格=识别    ESC=退出', True, TEXT_DIM)
+            '快捷键:  空格=识别    ESC=退出（或点右上角退出按钮）', True, TEXT_DIM)
         self.screen.blit(hint, (560, HEIGHT - self.FOOTER_H + 95))
 
     # ---------- 事件处理 ----------
@@ -688,7 +818,7 @@ class OCRApp:
 
             # 绘制
             self.screen.blit(self.bg, (0, 0))
-            self.draw_title()
+            self.draw_title(mouse_pos)
             self.draw_camera_panel(mouse_pos)
             self.draw_result_panel()
             self.draw_footer(mouse_pos)
@@ -702,16 +832,25 @@ class OCRApp:
         # 停止后台抓帧线程
         self._frame_thread_running = False
         self._frame_thread.join(timeout=2)
-        try:
-            vision_system.cleanup()
-        except:
-            pass
+        # 释放 cv2 摄像头设备（纯 cv2 模式，无 vision_system）
+        global _cv2_cap
+        if _cv2_cap is not None:
+            try:
+                _cv2_cap.release()
+            except Exception:
+                pass
+            _cv2_cap = None
+            print('cv2 摄像头已释放')
         try:
             player.cleanup()
-        except:
+        except Exception:
             pass
         pygame.quit()
         print('程序已退出')
+        try:
+            _debug_log_fp.close()
+        except Exception:
+            pass
 
 
 # ===================== 入口 =====================

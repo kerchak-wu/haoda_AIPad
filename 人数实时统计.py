@@ -14,8 +14,8 @@
   该算法直接数出画面里现有人数，与人流计数的"进入/离开累计"无关，结果准确。
 
 硬件接线：
-  - USB 外接摄像头（由视觉系统管理，不要再用 cv2.VideoCapture）
-  - 好搭AI派扩展板(ESP32)（本程序不控制外设，但按规范初始化以保持环境一致）
+  - USB 外接摄像头接在扩展板 USB 口上（由视觉系统管理，不要再用 cv2.VideoCapture）
+  - 好搭AI派扩展板(ESP32)（本程序不控制外设，但扩展板异常会导致摄像头不可用，需保持初始化）
 
 依赖库：
   pygame, cv2(opencv, 仅用于图像格式转换), numpy, ESP32, camera_vision_system_v3(好搭AI派自带)
@@ -32,6 +32,10 @@
 """
 
 import os
+# 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
+# 参考方案第 7 章 Rockchip 平台兼容性补丁
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
 import sys
 import time
 import threading
@@ -96,8 +100,8 @@ WIDTH, HEIGHT = 1920, 1080
 FONT_PATH = '/home/cxdz/jupyter/assets/PingFang_Regular.ttf'
 FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
 
-# 摄像头配置
-CAMERA_W, CAMERA_H = 640, 480
+# 摄像头配置（采集分辨率须与 create_vision_system_v3 的 width/height 一致）
+CAMERA_W, CAMERA_H = 1280, 720
 CAM_DISP_W, CAM_DISP_H = 880, 660
 
 # ---- 界面配色（浅色系，与人脸识别灯效.py 一致）----
@@ -120,11 +124,11 @@ CURRENT_COLOR = (255, 140, 0)   # 现有人数-橙色突出
 
 # ===================== 硬件初始化 =====================
 # 严格参照范例代码：ESP32 初始化 + 异常处理
-# 本程序不控制外设，但保持初始化以维持环境一致性
+# 本程序不控制外设，但摄像头接在扩展板 USB 口上，扩展板异常会导致摄像头不可用
 board = ESP32()
 _board_isstarted = board.start()
 if not _board_isstarted:
-    print('警告：扩展板连接异常，人数统计不依赖外设，程序继续运行')
+    print('警告：扩展板连接异常，摄像头接在扩展板 USB 口上，摄像头可能不可用')
 
 
 # ===================== Pygame 界面工具 =====================
@@ -201,7 +205,9 @@ class PeopleCounterApp:
     FOOTER_H = 110
 
     def __init__(self):
-        pygame.init()
+        # 分段初始化（不调用 pygame.init()），避免 pygame.mixer 导致原生崩溃
+        # 参考方案第 7 章 Rockchip 平台兼容性补丁
+        pygame.display.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('人数实时统计')
@@ -247,7 +253,8 @@ class PeopleCounterApp:
         self.change_log = []           # 人数变化记录 [(time_str, delta, new_count), ...]
         self.last_count = 0            # 上次检测到的人数（用于变化检测）
 
-        # 初始化视觉系统
+        # 初始化视觉系统（加载阶段显示进度画面，避免黑屏）
+        self._draw_loading_screen('正在初始化视觉系统，请稍候...')
         print('正在初始化视觉系统...')
         self._init_vision_system()
 
@@ -266,14 +273,104 @@ class PeopleCounterApp:
         self.capture_thread_running = True
         threading.Thread(target=self._capture_loop, daemon=True).start()
 
+    def _draw_loading_screen(self, msg):
+        """初始化阶段加载画面，避免长时间黑屏
+
+        在 _init_vision_system 各阶段之间调用，分步显示进度。
+        同时处理窗口关闭事件，避免初始化期间无法退出。
+        """
+        self.screen.blit(self.bg, (0, 0))
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((255, 255, 255, 200))
+        self.screen.blit(overlay, (0, 0))
+
+        text = self.font_title.render(msg, True, TITLE_COLOR)
+        self.screen.blit(text, (WIDTH // 2 - text.get_width() // 2,
+                                HEIGHT // 2 - 60))
+        sub = self.font_sub.render('请稍候...', True, SUBTLE_COLOR)
+        self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2,
+                               HEIGHT // 2 + 20))
+        pygame.display.flip()
+
+        # 处理窗口事件，避免初始化期间窗口无响应
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit(0)
+
+    def _detect_camera_id(self):
+        """按 41、40、42 顺序探测可用的摄像头设备号
+
+        使用 cv2.VideoCapture + 字符串路径 + CAP_V4L2 后端快速预检测，
+        毫秒级完成，绕过 FFMPEG 后端越界延迟（int 模式下约 6 秒/次）。
+        找到可用设备号后返回 int，供 V3 SDK 的 camera_id 使用。
+
+        检测步骤（每个候选）：
+          1. os.path.exists 检查 /dev/videoN 节点
+          2. CAP_V4L2 + 字符串路径打开
+          3. 最多读 5 帧，用 gray.mean() 验证非全黑/全白
+        释放后等待 0.3s 避免设备忙状态（参考方案要求）。
+
+        Returns:
+            int: 可用设备号；全部不可用时返回 None
+        """
+        candidates = [41, 40, 42]
+        for cam_id in candidates:
+            dev_path = '/dev/video%d' % cam_id
+            if not os.path.exists(dev_path):
+                print('[摄像头探测] %s 节点不存在，跳过' % dev_path)
+                continue
+            cap = cv2.VideoCapture(dev_path, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                print('[摄像头探测] %s 无法打开，跳过' % dev_path)
+                cap.release()
+                continue
+            # 最多读 5 帧验证有效性（mean 比 std 在 ARM 上更快）
+            valid = False
+            for _ in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None and hasattr(frame, 'shape') and len(frame.shape) == 3:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    mean_val = gray.mean()
+                    if 5 < mean_val < 250:
+                        valid = True
+                        break
+            cap.release()
+            if valid:
+                print('[摄像头探测] ✓ %s 可用（ID=%d）' % (dev_path, cam_id))
+                # 释放后等待 0.3s 避免设备忙状态
+                time.sleep(0.3)
+                return cam_id
+            else:
+                print('[摄像头探测] %s 可打开但无有效帧，跳过' % dev_path)
+        return None
+
     def _init_vision_system(self):
         """初始化视觉系统并打开摄像头（严格参照范例代码 5.17 目标检测）
 
         关键：不使用 cv2 VideoCapture，摄像头完全由视觉系统管理。
         目标检测属于连续检测，必须使用全托管模式。
+
+        摄像头探测：先按 41、40、42 顺序用 CAP_V4L2+字符串路径快速预检测
+        （毫秒级），找到可用设备号后传给 V3 SDK，避免 SDK 用 -1 自动探测
+        或传不可用 ID 导致回退浪费。
+        注：V3 SDK 内部用 int 调 cv2.VideoCapture(N)，FFMPEG 后端越界
+        延迟（~6秒）无法在应用层绕过，但预检测确保只传可用 ID。
         """
+        # 阶段 1：探测可用摄像头设备号
+        self._draw_loading_screen('正在探测摄像头设备（41/40/42）...')
+        print('正在探测摄像头设备...')
+        cam_id = self._detect_camera_id()
+        if cam_id is None:
+            print('未找到可用摄像头设备（41/40/42 均不可用）')
+            self.camera_ok = False
+            self.vision_system = None
+            return
+
+        # 阶段 2：初始化目标检测器
+        self._draw_loading_screen('正在初始化目标检测器...')
         self.vision_system = create_vision_system_v3(
-            camera_id=-1, width=1280, height=720,
+            camera_id=cam_id, width=1280, height=720,
             enable_basic=False, enable_advanced=False
         )
         self.vision_system.detection_config.enable_object_detection = True
@@ -282,8 +379,9 @@ class PeopleCounterApp:
         # 用于首次检测到目标时打印类别名，确认"人"的实际类别字符串
         self._det_class_logged = False
 
-        # 打开摄像头
-        print('正在打开视觉系统摄像头...')
+        # 阶段 3：打开摄像头
+        self._draw_loading_screen('正在打开摄像头（ID=%d）...' % cam_id)
+        print('正在打开视觉系统摄像头（ID=%d）...' % cam_id)
         if self.vision_system.open_camera():
             print('视觉系统摄像头已打开')
             self.camera_ok = True
@@ -291,8 +389,9 @@ class PeopleCounterApp:
             print('视觉系统摄像头打开失败')
             self.camera_ok = False
 
-        # 启动后台检测（show_preview=False，不弹 OpenCV 窗口）
+        # 阶段 4：启动后台检测（show_preview=False，不弹 OpenCV 窗口）
         if self.camera_ok:
+            self._draw_loading_screen('正在启动后台检测...')
             self.vision_system.threaded_system.start_background_detection(show_preview=False)
             print('目标检测后台检测已启动')
 
@@ -597,6 +696,11 @@ class PeopleCounterApp:
         # 退出清理
         self.capture_thread_running = False
         time.sleep(0.3)
+        # 显式停止后台检测线程（报告 4.1 节：stop_background_detection 在 threaded_system 下）
+        try:
+            self.vision_system.threaded_system.stop_background_detection()
+        except Exception:
+            pass
         try:
             self.vision_system.cleanup()
         except Exception:

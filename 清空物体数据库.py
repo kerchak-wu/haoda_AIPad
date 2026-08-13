@@ -12,20 +12,26 @@
 操作内容：
   1. 初始化视觉系统并打印当前物体数据库信息（探测）
   2. 从 object_records.json 读取已学习的类别名
-  3. 逐个调用 delete_object_recognition_class(class_name=xxx) 删除类别
+  3. 逐个尝试 delete_object_recognition_class(class_name=xxx) 删除类别
   4. 验证数据库是否清空（get_object_database_info）
   5. 删除应用层 object_records.json
-  6. 尝试删除磁盘上的物体特征数据库文件（多个可能路径）
+  6. 删除磁盘上的物体特征数据库目录（含整个 object_database 文件夹）
 
-注意：
-  - 与人脸 delete_face 不同，delete_object_recognition_class 是按类别名删除，
-    设计上支持安全删除单个类别。但为保险起见，本脚本会先打印数据库信息再操作。
-  - 若视觉系统内部仍有未知类别名（不在 JSON 中）无法通过 class_name 删除，
-    脚本会提示残留类别数，此时可尝试删除磁盘特征文件方式清理。
+注意（基于 camera_vision_system_v3_API分析报告 v2.1）：
+  - 报告 2.4 节确认 V3 库本身没有 delete_face 方法，故本工具的删除路径
+    与人脸侧不同，仅依赖 delete_object_recognition_class 与磁盘清理两路。
+  - 报告 2.5 节指出 delete_object_recognition_class「存在但签名未反射」，
+    本脚本使用 class_name= 关键字（与 add_object_recognition_class 同名参数
+    推测一致）；若调用失败会跳过并在末尾通过删除磁盘文件兜底。
+  - 报告 8.3 节强调 object_db_path 默认 'object_database'，工作目录会影响
+    数据库位置，故优先读取 detection_config.object_db_path 作为目标路径。
+  - 报告 8.7 节建议「删除整个文件夹后重启程序才能彻底重置」，本脚本会
+    用 shutil.rmtree 直接删除整个 object_database 目录。
 """
 
 import os
 import json
+import shutil
 
 from camera_vision_system_v3 import create_vision_system_v3
 
@@ -34,7 +40,8 @@ from camera_vision_system_v3 import create_vision_system_v3
 OBJECT_DATA_FILE = 'object_records.json'
 
 # 视觉系统物体特征数据库文件可能位置
-# 参照 face_database 路径推测，以及 skill 中提到的 object_data/ 目录
+# 注：detection_config.object_db_path（默认 'object_database'）会作为运行时
+# 实际路径，本列表仅作为兜底候选；运行时会把配置值插入到列表最前面。
 OBJECT_DB_PATHS = [
     '/home/cxdz/jupyter/user/object_database',
     '/home/cxdz/jupyter/user/ai/object_database',
@@ -77,6 +84,22 @@ def main():
     vision_system._init_detectors()
     print('视觉系统初始化完成')
 
+    # 优先读取 detection_config.object_db_path 作为运行时实际路径
+    # 报告 8.3 节：object_db_path 默认 'object_database'，工作目录会影响位置
+    configured_db_path = None
+    try:
+        configured_db_path = vision_system.detection_config.object_db_path
+    except Exception as e:
+        print('  读取 detection_config.object_db_path 失败: %s' % e)
+    if configured_db_path:
+        print('  当前 detection_config.object_db_path = %s' % configured_db_path)
+        # 把配置值插入候选列表最前，并去重
+        if configured_db_path not in OBJECT_DB_PATHS:
+            OBJECT_DB_PATHS.insert(0, configured_db_path)
+        else:
+            OBJECT_DB_PATHS.remove(configured_db_path)
+            OBJECT_DB_PATHS.insert(0, configured_db_path)
+
     # ---- 2. 打印清空前数据库信息 ----
     print('\n[2/6] 探测当前物体数据库信息...')
     before_info = None
@@ -93,15 +116,27 @@ def main():
 
     print('\n[4/6] 调用 delete_object_recognition_class 逐个删除...')
     deleted_count = 0
+    delete_method_error = None  # 记录方法签名/不存在类错误，末尾用于提示
     for name in class_names:
         try:
             result = vision_system.delete_object_recognition_class(class_name=name)
             print('  ✓ 删除 [%s] 结果: %s' % (name, str(result)))
             deleted_count += 1
+        except TypeError as e:
+            # 报告 8.2 节参数名陷阱：若 class_name 不是正确参数名会抛 TypeError
+            delete_method_error = e
+            print('  ✗ 删除 [%s] 失败（TypeError）: %s' % (name, e))
+        except AttributeError as e:
+            delete_method_error = e
+            print('  ✗ 删除 [%s] 失败（AttributeError）: %s' % (name, e))
         except Exception as e:
             print('  ✗ 删除 [%s] 失败: %s' % (name, e))
 
     print('已尝试删除 %d/%d 个类别' % (deleted_count, len(class_names)))
+    if delete_method_error is not None and deleted_count == 0 and class_names:
+        print('\n⚠ delete_object_recognition_class 全部失败（%s）' % str(delete_method_error))
+        print('  报告 2.5 节确认该方法存在但签名未反射，本脚本猜测参数名 class_name。')
+        print('  请直接依赖步骤 6 的磁盘清理方式重置（推荐）。')
 
     # ---- 5. 验证清空结果 ----
     print('\n[5/6] 验证清空结果...')
@@ -124,7 +159,7 @@ def main():
         pass
 
     # ---- 6. 删除应用层 JSON 和磁盘特征文件 ----
-    print('\n[6/6] 删除应用层记录与磁盘特征文件...')
+    print('\n[6/6] 删除应用层记录与磁盘特征目录...')
 
     # 删除 object_records.json
     if os.path.exists(OBJECT_DATA_FILE):
@@ -133,18 +168,15 @@ def main():
     else:
         print('  %s 不存在，跳过' % OBJECT_DATA_FILE)
 
-    # 删除磁盘特征数据库文件
+    # 删除磁盘特征数据库目录（整个文件夹）
+    # 报告 8.7 节：删除整个文件夹后重启程序才能彻底重置
     for db_path in OBJECT_DB_PATHS:
-        if os.path.exists(db_path):
+        if os.path.isdir(db_path):
             try:
-                for fname in os.listdir(db_path):
-                    fpath = os.path.join(db_path, fname)
-                    if os.path.isfile(fpath):
-                        os.remove(fpath)
-                        print('  ✓ 已删除 %s' % fpath)
-                print('  目录 %s 已清空' % db_path)
+                shutil.rmtree(db_path)
+                print('  ✓ 已删除整个目录 %s' % db_path)
             except Exception as e:
-                print('  ✗ 清空目录 %s 失败: %s' % (db_path, e))
+                print('  ✗ 删除目录 %s 失败: %s' % (db_path, e))
         else:
             print('  目录 %s 不存在，跳过' % db_path)
 
@@ -153,10 +185,14 @@ def main():
     print('清空完成！')
     print('=' * 50)
     print('\n下一步操作：')
-    print('  1. 运行「物体学习.py」重新学习物体')
-    print('  2. 学习完成后再运行「物体识别播报.py」')
-    print('\n注意：重新学习后物体数据库应从 0 个类别开始计数。')
-    print('      若仍有残留数据，请将 debug_log.txt 中的数据库信息反馈以排查。')
+    print('  1. 【重要】先关闭/退出当前 Python 进程，释放对特征文件的占用')
+    print('  2. 重新运行「物体学习.py」学习物体')
+    print('  3. 学习完成后再运行「物体识别播报.py」')
+    print('\n注意（基于报告 8.7 节）：')
+    print('  - 已用 shutil.rmtree 删除整个 object_database 目录，重新学习时')
+    print('    视觉系统会自动重建该目录，类别计数从 0 开始。')
+    print('  - 必须重启 Python 进程后再学习，否则内存中可能仍残留旧模型状态，')
+    print('    导致类别 ID 从旧值继续递增。')
 
 
 if __name__ == '__main__':

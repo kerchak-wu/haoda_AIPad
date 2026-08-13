@@ -14,24 +14,79 @@
   - 主线程：取最新帧做 OCR 和 UI 绘制
 
 前置条件：
-  - 视频文件放入 videos/ 文件夹（好搭智眼.mp4 等）
-  - 音频文件放入 videos/ 文件夹（好搭智眼.mp3 等，与视频同名）
   - 外接USB摄像头已连接
   - 好搭AI派右下角开关拨到左侧（外设模式）
 """
 
+# !!! text_recognition 必须在所有其他库之前导入 !!!
+# 原因：ppocr_system 依赖 utils.operators，若先导入 cv2/pygame，
+# 它们会将 utils 注册为非包模块，导致 ppocr_system 报 'utils' is not a package
+try:
+    from text_recognition import TextRecognizer as _TextRecognizer
+    _TEXT_RECOGNITION_AVAILABLE = True
+    _TEXT_RECOGNITION_ERROR = None
+except Exception as _e:
+    _TEXT_RECOGNITION_AVAILABLE = False
+    _TEXT_RECOGNITION_ERROR = _e
+
 import os
+# Rockchip 平台兼容性补丁：强制 libGL 软件渲染，避免 GPU 驱动崩溃
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
 import sys
 import threading
 import subprocess
 import tempfile
-os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+import datetime as _datetime
 
 import pygame
 import cv2
 import time
 import numpy as np
-from text_recognition import TextRecognizer
+
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 参照人脸识别灯效.py / 文字识别触发视频播放wb.py 的日志方案：
+# logs/ 目录、程序名_YYYYMMDD.log、追加模式、块缓冲
+_LOG_DIR = 'logs'
+if not os.path.exists(_LOG_DIR):
+    try:
+        os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = os.path.join(
+    _LOG_DIR,
+    '文字识别视频播放器_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
 
 # ============ 配置区 ============
 SCREEN_WIDTH = 1920
@@ -68,19 +123,36 @@ COLOR_PANEL     = (16, 20, 42)    # 面板底色
 COLOR_BORDER    = (30, 60, 100)   # 面板边框
 
 
+def _is_valid_frame(frame):
+    """校验摄像头帧有效性：3维数组 + 非全黑/全白
+    用 frame.mean() 检测全黑/全白帧，避免 ARM 上 gray.std() 计算开销过大。
+    """
+    if frame is None:
+        return False
+    if len(frame.shape) != 3 or frame.size == 0:
+        return False
+    try:
+        mean_val = frame.mean()
+        if mean_val < 5 or mean_val > 250:
+            return False
+    except Exception:
+        return False
+    return True
+
+
 def _detect_camera():
     """自动检测可用的摄像头设备"""
     for dev in CAMERA_DEVICES:
         cap = cv2.VideoCapture()
         try:
             if cap.open(dev):
-                ret, _ = cap.read()
-                if ret:
+                ret, f = cap.read()
+                if ret and _is_valid_frame(f):
                     cap.release()
                     print(f"检测到摄像头: {dev}")
                     return dev
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"摄像头 {dev} 检测异常: {_e}")
         cap.release()
     return None
 
@@ -118,7 +190,7 @@ class CameraCapture:
         cap.set(cv2.CAP_PROP_FPS, 30)
         for _ in range(5):
             ret, f = cap.read()
-            if ret and f is not None and f.size > 0:
+            if ret and _is_valid_frame(f):
                 with self._lock:
                     self.frame = f
                 self._ready.set()
@@ -126,11 +198,11 @@ class CameraCapture:
             time.sleep(0.05)
         while self.running:
             ret, f = cap.read()
-            if ret:
+            if ret and _is_valid_frame(f):
                 with self._lock:
                     self.frame = f
             else:
-                time.sleep(0.01)
+                time.sleep(0.05)
         cap.release()
 
     def get_frame(self):
@@ -152,11 +224,19 @@ class OCRVideoPlayer:
     """文字识别视频播放器"""
 
     def __init__(self):
-        # ----- Pygame 分段初始化 -----
+        # ----- Pygame 分段初始化（Rockchip 兼容：不调用 pygame.init()）-----
         pygame.display.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("好搭AI派 - 文字识别视频播放")
+        # mixer 用于视频内嵌音轨播放，单独初始化并容错（Rockchip 平台音频驱动可能崩溃）
+        # 初始化失败时仅静音播放视频，不影响画面和 OCR
+        self.mixer_ready = False
+        try:
+            pygame.mixer.init()
+            self.mixer_ready = True
+        except Exception as _e:
+            print(f"pygame.mixer 初始化失败，视频音轨播放功能不可用: {_e}")
 
         # ----- 字体 -----
         self.font_large = pygame.font.Font(FONT_PATH, 52)
@@ -179,9 +259,25 @@ class OCRVideoPlayer:
             print("警告：未检测到可用摄像头")
             self.camera = None
 
-        # ----- OCR 识别器 -----
+        # ----- OCR 识别器（text_recognition 已在文件开头最先导入）-----
         self._show_loading("正在加载 OCR 模型")
-        self.ocr = TextRecognizer()
+        if not _TEXT_RECOGNITION_AVAILABLE:
+            print(f"text_recognition 模块导入失败: {_TEXT_RECOGNITION_ERROR}")
+            print("无法启动 OCR 识别，程序退出")
+            if self.camera:
+                self.camera.stop()
+            try:
+                pygame.mixer.quit()
+            except Exception:
+                pass
+            pygame.quit()
+            try:
+                _debug_log_fp.flush()
+                _debug_log_fp.close()
+            except Exception:
+                pass
+            sys.exit(1)
+        self.ocr = _TextRecognizer()
 
         # ----- 状态变量 -----
         self.is_playing_video = False
@@ -287,13 +383,13 @@ class OCRVideoPlayer:
         if self.is_paused:
             try:
                 pygame.mixer.music.pause()
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"音频暂停异常: {_e}")
         else:
             try:
                 pygame.mixer.music.unpause()
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"音频继续异常: {_e}")
         print("视频已暂停" if self.is_paused else "视频继续播放")
 
     def _stop_video(self):
@@ -302,10 +398,10 @@ class OCRVideoPlayer:
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
+        # 只停止当前音乐，不 quit mixer（mixer 在程序生命周期内只初始化一次）
         if self.audio_initialized:
             try:
                 pygame.mixer.music.stop()
-                pygame.mixer.quit()
             except Exception:
                 pass
             self.audio_initialized = False
@@ -330,6 +426,11 @@ class OCRVideoPlayer:
         print(f"开始播放视频: {video_path}")
 
         # 用 ffmpeg 提取音频到临时 WAV 文件，再通过 pygame 播放
+        # 注意：mixer 已在 __init__ 启动时初始化，此处不再重复 init
+        if not self.mixer_ready:
+            print("mixer 未就绪，视频将无声播放")
+            self.audio_initialized = False
+            return
         try:
             # 创建临时 WAV 文件
             tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
@@ -343,13 +444,12 @@ class OCRVideoPlayer:
                 capture_output=True, timeout=15
             )
             # 播放 WAV
-            pygame.mixer.init()
             pygame.mixer.music.load(self.audio_temp_path)
             pygame.mixer.music.play()
             self.audio_initialized = True
             print("音频已启动（ffmpeg + WAV）")
-        except Exception as e:
-            print(f"音频加载失败（视频将无声播放）: {e}")
+        except Exception as _e:
+            print(f"音频加载失败（视频将无声播放）: {_e}")
             self.audio_initialized = False
 
     # ================================================================
@@ -524,7 +624,13 @@ class OCRVideoPlayer:
         self.screen.blit(sys_info, (20, SCREEN_HEIGHT - 32))
 
     def _do_ocr(self, frame):
-        result = self.ocr.recognize_text(frame, confidence_threshold=0.5)
+        if self.ocr is None:
+            return
+        try:
+            result = self.ocr.recognize_text(frame, confidence_threshold=0.5)
+        except Exception as _e:
+            print(f"OCR 识别异常: {_e}")
+            return
         if not result["success"]:
             return
         text = result["text"].strip()
@@ -543,10 +649,26 @@ class OCRVideoPlayer:
         self._stop_video()
         if self.camera:
             self.camera.stop()
+            print("摄像头采集线程已停止")
         if self.ocr:
-            self.ocr.cleanup()
+            try:
+                self.ocr.cleanup()
+                print("OCR 识别器已清理")
+            except Exception as _e:
+                print(f"OCR 清理异常: {_e}")
+        # mixer 在 __init__ 启动时初始化，退出时统一 quit
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
         pygame.quit()
         print("系统资源已清理")
+        # 关闭日志文件，防止日志丢失
+        try:
+            _debug_log_fp.flush()
+            _debug_log_fp.close()
+        except Exception:
+            pass
 
 
 # ================================================================

@@ -39,22 +39,86 @@
 ============================================================
 """
 
+# !!! text_recognition 必须在所有其他库之前导入 !!!
+# 原因：ppocr_system 依赖 utils.operators，若先导入 cv2/pygame，
+# 它们会将 utils 注册为非包模块，导致 ppocr_system 报 'utils' is not a package
+try:
+    from text_recognition import TextRecognizer as _TextRecognizer
+    _TEXT_RECOGNITION_AVAILABLE = True
+    _TEXT_RECOGNITION_ERROR = None
+except Exception as _e:
+    _TEXT_RECOGNITION_AVAILABLE = False
+    _TEXT_RECOGNITION_ERROR = _e
+
 import os
+# Rockchip 平台兼容性补丁：强制 libGL 使用软件渲染，避免 GPU 驱动崩溃
+# 参考方案第 7 章 Rockchip 平台兼容性补丁
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
+import sys
 import time
 import threading
 import subprocess
 import tempfile
+import datetime as _datetime
 from queue import Queue, Empty
 
-# Rockchip 平台兼容性补丁：强制 libGL 使用软件渲染，避免 GPU 驱动崩溃
-os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
-
-import cv2
+# 导入顺序：先 pygame 再 cv2（Rockchip 平台兼容性要求）
 import pygame
+import cv2
 
 # Pygame 分段初始化（不调用 pygame.init()，避免与摄像头驱动冲突）
 pygame.display.init()
 pygame.font.init()
+# mixer 需用于视频内嵌音轨播放，单独初始化并容错（Rockchip 平台音频驱动可能崩溃）
+try:
+    pygame.mixer.init()
+except Exception as _e:
+    print('pygame.mixer 初始化失败，视频音轨播放功能不可用:', _e)
+
+
+# ===================== 日志输出（控制台 + 文件）=====================
+# 参照人脸识别灯效.py / 人数实时统计.py 的日志方案：
+# logs/ 目录、程序名_YYYYMMDD.log、追加模式、块缓冲
+_LOG_DIR = 'logs'
+if not os.path.exists(_LOG_DIR):
+    try:
+        os.makedirs(_LOG_DIR)
+    except Exception:
+        pass
+_LOG_FILE = os.path.join(
+    _LOG_DIR,
+    '文字识别播视频qoder_%s.log' % _datetime.datetime.now().strftime('%Y%m%d')
+)
+_debug_log_fp = open(_LOG_FILE, 'a', encoding='utf-8', buffering=-1)
+_debug_log_fp.write('\n\n======== %s 运行开始 ========\n' %
+                    _datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+_debug_log_fp.flush()
+
+
+class _TeeStdout:
+    """同时写入控制台和日志文件的 stdout 包装"""
+
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, msg):
+        self.original.write(msg)
+        try:
+            _debug_log_fp.write(msg)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.original.flush()
+        try:
+            _debug_log_fp.flush()
+        except Exception:
+            pass
+
+
+sys.stdout = _TeeStdout(sys.stdout)
+sys.stderr = _TeeStdout(sys.stderr)
 
 # ==================== 配置参数 ====================
 WINDOW_W, WINDOW_H = 1920, 1080         # 窗口大小（1920x1080）
@@ -106,12 +170,22 @@ def load_font(size):
 
 # ==================== 科技风绘制工具 ====================
 
+# 网格背景 Surface 缓存（静态画面，无需每帧重绘 25 条线）
+_GRID_SURFACE = None
+
+
 def draw_grid(window):
-    """绘制淡网格背景"""
-    for x in range(0, WINDOW_W, 120):
-        pygame.draw.line(window, COLOR_GRID, (x, 0), (x, WINDOW_H), 1)
-    for y in range(0, WINDOW_H, 120):
-        pygame.draw.line(window, COLOR_GRID, (0, y), (WINDOW_W, y), 1)
+    """绘制淡网格背景（缓存优化：首次绘制后复用 Surface，背景透明）"""
+    global _GRID_SURFACE
+    if _GRID_SURFACE is None:
+        # SRCALPHA 透明背景 Surface，仅包含网格线，可叠加到任意背景上
+        _GRID_SURFACE = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        for x in range(0, WINDOW_W, 120):
+            pygame.draw.line(_GRID_SURFACE, COLOR_GRID, (x, 0), (x, WINDOW_H), 1)
+        for y in range(0, WINDOW_H, 120):
+            pygame.draw.line(_GRID_SURFACE, COLOR_GRID, (0, y), (WINDOW_W, y), 1)
+        _GRID_SURFACE = _GRID_SURFACE.convert_alpha()
+    window.blit(_GRID_SURFACE, (0, 0))
 
 
 def draw_tech_corners(window, rect, color, length=22, width=3):
@@ -138,13 +212,35 @@ def draw_tech_panel(window, rect, border_color=COLOR_CYAN_DIM, fill=COLOR_PANEL)
     draw_tech_corners(window, rect, border_color)
 
 
+# 文字 Surface 缓存：避免每帧重复 font.render（ARM 上 TrueType 光栅化开销极大）
+# 注意：OCR 识别结果每帧变化，需限制缓存大小防止内存无限增长
+_TEXT_SURFACE_CACHE = {}
+_TEXT_CACHE_MAX = 200   # 最大缓存条目数
+
+
+def _get_text_surface(font, text, color):
+    """获取（或创建并缓存）文字 Surface，key=(font_id, text, color)"""
+    font_id = id(font)
+    key = (font_id, text, color)
+    surf = _TEXT_SURFACE_CACHE.get(key)
+    if surf is None:
+        # 必须用 convert_alpha() 保留 alpha 通道（font.render 产生抗锯齿半透明边缘）
+        # 用 convert() 会丢失 alpha，导致文字不显示或带黑色方块
+        surf = font.render(text, True, color).convert_alpha()
+        # 缓存溢出时清空（简单策略：识别结果频繁变化，旧条目无复用价值）
+        if len(_TEXT_SURFACE_CACHE) >= _TEXT_CACHE_MAX:
+            _TEXT_SURFACE_CACHE.clear()
+        _TEXT_SURFACE_CACHE[key] = surf
+    return surf
+
+
 def draw_text(window, font, text, color, x, y, glow=False):
-    """在指定位置绘制文字，glow=True 时带青色辉光效果"""
+    """在指定位置绘制文字，glow=True 时带青色辉光效果（缓存优化）"""
     if glow:
-        glow_surface = font.render(text, True, COLOR_CYAN_DIM)
+        glow_surface = _get_text_surface(font, text, COLOR_CYAN_DIM)
         for dx, dy in ((2, 2), (-2, 2), (2, -2), (-2, -2)):
             window.blit(glow_surface, (x + dx, y + dy))
-    text_surface = font.render(text, True, color)
+    text_surface = _get_text_surface(font, text, color)
     window.blit(text_surface, (x, y))
 
 
@@ -177,6 +273,19 @@ def cv2_to_surface(frame):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     surface = pygame.image.frombuffer(rgb.tobytes(), (rgb.shape[1], rgb.shape[0]), 'RGB')
     return surface.convert()
+
+
+def cv2_frame_to_surface_resized(frame, target_w, target_h):
+    """将 cv2 帧缩放到目标尺寸并转为 Pygame Surface（ARM 优化）
+
+    性能优化：用 cv2.resize（ARM NEON 加速）替代 pygame.transform.scale（软件渲染），
+    在 Rockchip 平台上速度快 3-5 倍。
+    """
+    h, w = frame.shape[:2]
+    if w != target_w or h != target_h:
+        frame = cv2.resize(frame, (target_w, target_h))
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    return pygame.image.frombuffer(rgb.tobytes(), (target_w, target_h), 'RGB').convert()
 
 
 def blit_fit(window, surface, rect):
@@ -215,12 +324,12 @@ def fmt_time(seconds):
 def init_ocr():
     """在主线程加载 OCR 识别引擎并返回识别器对象
 
-    注意：必须先于其他 SDK 模块调用本函数，否则 text_recognition
-    内部的 PaddleOCR 相对导入（from utils.operators import ...）
-    会因 utils 包被其他模块污染而报错（utils is not a package）。
+    注意：text_recognition 已在文件开头最先导入（ppocr_system utils
+    冲突规避），本函数仅创建识别器实例。
     """
-    from text_recognition import TextRecognizer
-    return TextRecognizer()
+    if not _TEXT_RECOGNITION_AVAILABLE:
+        raise RuntimeError('text_recognition 模块导入失败：%s' % _TEXT_RECOGNITION_ERROR)
+    return _TextRecognizer()
 
 
 def prepare_ocr_frame(frame):
@@ -271,13 +380,16 @@ def ocr_worker(stop_event, pause_event, lock, queue, result, state, recognizer):
 # ==================== 摄像头（纯 cv2 独占模式 + 采集线程） ====================
 
 def _is_valid_frame(frame):
-    """简单校验画面有效性（排除全黑/全白/雪花帧）"""
+    """简单校验画面有效性（排除全黑/全白帧）
+
+    项目记忆：摄像头采集线程中使用 gray.std() 进行帧检测在 ARM 设备上
+    计算开销过大，应改用 gray.mean() 检测全黑/全白帧。
+    """
     if frame is None:
         return False
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     mean = gray.mean()
-    std = gray.std()
-    return 10 < mean < 245 and std > 5
+    return 10 < mean < 245
 
 
 def open_camera_device():
@@ -292,6 +404,9 @@ def open_camera_device():
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            # 关键：设置缓冲区为 1 帧，避免驱动内部缓冲堆积导致画面滞后
+            # V4L2 后端默认缓冲 3-5 帧，这是摄像头预览"滞后"的最常见根因
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
         # 验证能读到有效画面
@@ -318,13 +433,23 @@ class CameraThread:
 
     def _loop(self):
         while self.running:
-            ret, frame = self.cap.read()
+            # 关键：先 grab() 清空驱动内部缓冲区的陈旧帧，再 retrieve() 取最新帧
+            # 即使 CAP_PROP_BUFFERSIZE=1 不生效，这也能保证拿到的是最新画面，
+            # 彻底消除"画面滞后几秒"的问题（V4L2 默认缓冲 3-5 帧）
+            # 限制最多丢弃 5 帧，防止某些后端 grab() 一直返回 True 导致死循环
+            discard_count = 0
+            while discard_count < 5 and self.cap.grab():
+                discard_count += 1
+            ret, frame = self.cap.retrieve()
+            if not ret:
+                # retrieve 失败时回退到 read
+                ret, frame = self.cap.read()
             if ret and frame is not None:
                 with self.lock:
                     self.frame = frame
                     self.last_update = time.time()
-            else:
-                time.sleep(0.05)   # 读取失败时降频，避免空转
+            # 短暂休眠避免 CPU 占满；cap.grab 阻塞等待新帧时本身不耗 CPU
+            time.sleep(0.02)
 
     def start(self):
         self.thread.start()
@@ -367,9 +492,11 @@ def audio_start(video_file):
     """播放视频内嵌音轨；失败时返回 False（视频将静音播放）"""
     if not AUDIO_ENABLED:
         return False
+    # mixer 已在程序启动时初始化；若初始化失败则静音播放
+    if pygame.mixer.get_init() is None:
+        print('pygame.mixer 未初始化，本次静音播放画面')
+        return False
     try:
-        if pygame.mixer.get_init() is None:
-            pygame.mixer.init()
         # 优先：ffmpeg 提取音轨后播放（支持暂停/继续）
         wav_path = extract_audio(video_file)
         if wav_path:
@@ -407,10 +534,11 @@ def audio_resume():
 
 
 def audio_stop():
-    """停止声音"""
+    """停止声音并卸载音轨资源（释放内存，避免播放结束后 mixer 持续占用 RAM）"""
     try:
         if pygame.mixer.get_init() is not None:
             pygame.mixer.music.stop()
+            pygame.mixer.music.unload()   # 关键：释放已加载的 wav 数据
     except Exception:
         pass
 
@@ -435,7 +563,8 @@ class Button:
         pygame.draw.rect(window, (10, 18, 34), inner, border_radius=6)
         pygame.draw.rect(window, self.accent_color, inner, 2, border_radius=6)
         draw_tech_corners(window, self.rect, self.accent_color, length=16, width=3)
-        text_surface = self.font.render(self.text, True, self.text_color)
+        # 使用文字缓存（按钮文字「暂停/继续/停止/退出程序」每帧重复，缓存命中率 100%）
+        text_surface = _get_text_surface(self.font, self.text, self.text_color)
         text_rect = text_surface.get_rect(center=self.rect.center)
         window.blit(text_surface, text_rect)
 
@@ -445,6 +574,7 @@ class Button:
 def main():
     window = pygame.display.set_mode(size=(WINDOW_W, WINDOW_H), flags=0, depth=0)
     pygame.display.set_caption('文字识别触发视频播放 · TECH SYSTEM')
+    clock = pygame.time.Clock()
 
     font_title = load_font(54)
     font_normal = load_font(34)
@@ -517,6 +647,9 @@ def main():
     recognized_text = '等待识别结果...'
     last_finish_time = 0       # 视频播放结束/停止的时间（防重复触发）
     running = True
+    # 摄像头预览 Surface 缓存：仅在帧更新时重新转换，避免每轮循环重复 cvtColor+convert
+    cam_surface = None         # 缓存的摄像头预览 Surface
+    last_cam_ts = 0            # 上次转换时摄像头帧的时间戳
 
     def get_elapsed():
         """当前已播放时长（暂停期间不计时）"""
@@ -527,6 +660,7 @@ def main():
     def back_to_recognize():
         """停止播放，返回识别界面"""
         nonlocal state, vd, paused, playing_name, last_surface, audio_playing, recognized_text
+        nonlocal cam_surface, last_cam_ts
         audio_stop()
         audio_playing = False
         if vd is not None:
@@ -536,6 +670,14 @@ def main():
         paused = False
         playing_name = ''
         last_surface = None
+        # 清空摄像头预览缓存，强制下次渲染重新转换（避免播放后用到陈旧 Surface）
+        cam_surface = None
+        last_cam_ts = 0
+        # 强制回收视频帧 Surface 对象（避免大尺寸画面堆积导致内存压力）
+        # 播放期间产生的视频帧 Surface 在 ARM 设备上不会立即被 GC 回收，
+        # 累积的内存占用会让摄像头预览渲染变慢（"播放返回后滞后"的根因）
+        import gc
+        gc.collect()
         # 恢复 OCR：清空可能遗留的识别结果，重置显示文字
         ocr_pause.clear()
         with result_lock:
@@ -613,16 +755,39 @@ def main():
                         last_finish_time = time.time()
 
         # ==================== 绘制界面 ====================
-        window.fill(COLOR_BG)
-        draw_grid(window)
-
         if state == 'recognize':
+            window.fill(COLOR_BG)
+            draw_grid(window)
             # ---------------- 识别界面 ----------------
-            # 获取最新摄像头画面（采集线程缓存，不阻塞）
-            frame = cam_thread.get_frame() if camera_ok else None
+            # 标题区（紧凑：标题与副标题同行，退出按钮在右上角不与面板重叠）
+            draw_text(window, font_title, '文字识别 · 视频点播', COLOR_CYAN, 40, 24, glow=True)
+            draw_text(window, font_status, 'TEXT RECOGNITION VIDEO SYSTEM', COLOR_DIM, 620, 58)
 
-            # 连续识别：OCR 引擎空闲（队列空）就提交最新画面
-            if (camera_ok and ocr_state['ready'] and frame is not None
+            # 左侧：摄像头预览（科技边框，标签内嵌在顶部条上）
+            # 框高 = 画面区高(PREVIEW_H) + 顶部状态条40px，整体占满主区域
+            preview_rect = pygame.Rect(40, 112, PREVIEW_W, PREVIEW_H + 40)
+            feed_rect = pygame.Rect(preview_rect.x + 12, preview_rect.y + 48,
+                                    preview_rect.w - 24, preview_rect.h - 60)
+
+            # 获取最新摄像头画面（采集线程缓存，不阻塞）
+            # 性能优化：仅在摄像头帧更新时执行 resize+cvtColor+convert（约 20fps），
+            # 其余循环迭代直接复用缓存的 cam_surface，避免 50fps 重复转换
+            cam_ts_now = cam_thread.last_update if camera_ok else 0
+            frame = None
+            if camera_ok and cam_ts_now != last_cam_ts:
+                frame = cam_thread.get_frame()
+                last_cam_ts = cam_ts_now
+                if frame is not None:
+                    try:
+                        # 直接缩放到 feed_rect 尺寸（ARM NEON 加速），
+                        # 后续 blit 无需再调用 pygame.transform.scale
+                        cam_surface = cv2_frame_to_surface_resized(
+                            frame, feed_rect.w, feed_rect.h)
+                    except Exception:
+                        pass
+
+            # 连续识别：OCR 引擎空闲（队列空）就提交最新画面（仅在新帧到来时提交）
+            if (frame is not None and ocr_state['ready']
                     and now - last_finish_time >= RETRIGGER_DELAY):
                 try:
                     ocr_queue.get_nowait()   # 丢弃尚未处理的旧画面
@@ -647,26 +812,16 @@ def main():
                 print('识别到目标文字，开始播放视频')
                 start_play(need_start)
 
-            # 标题区（紧凑：标题与副标题同行，退出按钮在右上角不与面板重叠）
-            draw_text(window, font_title, '文字识别 · 视频点播', COLOR_CYAN, 40, 24, glow=True)
-            draw_text(window, font_status, 'TEXT RECOGNITION VIDEO SYSTEM', COLOR_DIM, 620, 58)
-
-            # 左侧：摄像头预览（科技边框，标签内嵌在顶部条上）
-            # 框高 = 画面区高(PREVIEW_H) + 顶部状态条40px，整体占满主区域
-            preview_rect = pygame.Rect(40, 112, PREVIEW_W, PREVIEW_H + 40)
             draw_tech_panel(window, preview_rect, COLOR_CYAN_DIM)
             bar_rect = pygame.Rect(preview_rect.x, preview_rect.y, preview_rect.w, 40)
             pygame.draw.rect(window, (10, 18, 34), bar_rect)
             pygame.draw.line(window, COLOR_CYAN_DIM, bar_rect.bottomleft, bar_rect.bottomright, 1)
             draw_text(window, font_status, '■ CAMERA FEED', COLOR_CYAN, preview_rect.x + 16, preview_rect.y + 8)
             draw_text(window, font_status, 'TEXT OCR · LIVE', COLOR_DIM, preview_rect.right - 210, preview_rect.y + 8)
-            feed_rect = pygame.Rect(preview_rect.x + 12, preview_rect.y + 48,
-                                    preview_rect.w - 24, preview_rect.h - 60)
-            if frame is not None:
-                try:
-                    blit_fit(window, cv2_to_surface(frame), feed_rect)
-                except Exception:
-                    pass
+            # feed_rect 已在上方定义（与 cam_surface 尺寸严格一致）
+            # 直接 blit 预缩放好的 cam_surface，跳过 pygame.transform.scale
+            if cam_surface is not None:
+                window.blit(cam_surface, (feed_rect.x, feed_rect.y))
             else:
                 draw_text(window, font_normal, '摄像头未连接或未打开', COLOR_DIM,
                           feed_rect.centerx - 170, feed_rect.centery - 24)
@@ -679,7 +834,7 @@ def main():
             terminal_rect = pygame.Rect(panel_rect.x + 24, panel_rect.y + 84, panel_rect.w - 48, 232)
             pygame.draw.rect(window, COLOR_TERMINAL, terminal_rect)
             pygame.draw.rect(window, COLOR_CYAN_DIM, terminal_rect, 1)
-            if frame is None:
+            if cam_surface is None:
                 draw_text(window, font_small, '> 等待摄像头画面...', COLOR_DIM, terminal_rect.x + 16, terminal_rect.y + 14)
             elif not ocr_state['ready']:
                 draw_text(window, font_small, '> OCR引擎加载中...', COLOR_DIM, terminal_rect.x + 16, terminal_rect.y + 14)
@@ -729,6 +884,13 @@ def main():
 
         else:
             # ---------------- 播放界面 ----------------
+            # 播放界面直接填充黑色（跳过 COLOR_BG + 网格线，减少软件渲染开销）
+            window.fill((0, 0, 0))
+
+            # 视频画面区域（上方大区域）
+            video_rect = pygame.Rect(0, 0, WINDOW_W, WINDOW_H - 120)
+            fit_rect = video_rect.inflate(-30, -30)
+
             # 读取视频帧（暂停时不读取新帧）
             if vd is not None and not paused and now >= next_frame_time:
                 ret, frame = vd.read()
@@ -739,15 +901,24 @@ def main():
                 else:
                     next_frame_time = now + 1.0 / video_fps
                     try:
-                        last_surface = cv2_to_surface(frame)
+                        # 性能优化：用 cv2.resize 预缩放到目标尺寸（ARM NEON 加速），
+                        # 后续直接 blit 即可，避免每帧调用 pygame.transform.scale
+                        scale = min(fit_rect.w / frame.shape[1],
+                                    fit_rect.h / frame.shape[0])
+                        new_w = max(1, int(frame.shape[1] * scale))
+                        new_h = max(1, int(frame.shape[0] * scale))
+                        resized = cv2.resize(frame, (new_w, new_h))
+                        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                        last_surface = pygame.image.frombuffer(
+                            rgb.tobytes(), (new_w, new_h), 'RGB').convert()
                     except Exception:
                         pass
 
-            # 视频画面区域（上方大区域）
-            video_rect = pygame.Rect(0, 0, WINDOW_W, WINDOW_H - 120)
-            window.fill((0, 0, 0), video_rect)
+            # 直接 blit 预缩放好的视频帧（无需每帧 pygame.transform.scale 重复缩放）
             if last_surface is not None:
-                blit_fit(window, last_surface, video_rect.inflate(-30, -30))
+                x = fit_rect.x + (fit_rect.w - last_surface.get_width()) // 2
+                y = fit_rect.y + (fit_rect.h - last_surface.get_height()) // 2
+                window.blit(last_surface, (x, y))
 
             draw_tech_corners(window, pygame.Rect(30, 30, WINDOW_W - 60, WINDOW_H - 180),
                               COLOR_CYAN_DIM, length=26, width=3)
@@ -773,6 +944,7 @@ def main():
             btn_stop.draw(window)
 
         pygame.display.flip()
+        clock.tick(30)   # 限制主循环帧率 30fps，减少软件渲染开销
 
     # ==================== 退出清理 ====================
     ocr_stop.set()
@@ -785,6 +957,10 @@ def main():
         cam_thread.stop()
     pygame.quit()
     print('程序已退出')
+    try:
+        _debug_log_fp.close()
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':
