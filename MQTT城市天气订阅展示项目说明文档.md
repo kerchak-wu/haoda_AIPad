@@ -48,14 +48,18 @@ haoda_AIPad/
 
 ## 五、安装与运行
 
-1. **安装依赖**：
+1. **安装依赖**
+
    ```bash
    pip install pygame-ce paho-mqtt
    ```
+  
    > 好搭AI派平台通常已预装 `paho-mqtt`，可直接运行。
 2. **准备资源**：
    确保在项目同目录下存在 `images` 文件夹，并在其中放入一张名为 `1.jpg` 的背景图（建议分辨率 1920×1080）。若无此图，程序将回退为纯色渐变背景。
+  
 3. **运行程序**：
+
    ```bash
    python3 weather_mqtt.py
    ```
@@ -90,6 +94,7 @@ haoda_AIPad/
 ### 3. 测试 MQTT
 
 使用 `mosquitto_pub` 测试：
+
 ```bash
 mosquitto_pub -h 192.168.2.251 -t topic/city -m "1"   # 显示北京
 mosquitto_pub -h 192.168.2.251 -t topic/city -m "5"   # 显示杭州
