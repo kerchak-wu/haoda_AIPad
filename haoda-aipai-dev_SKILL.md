@@ -5,6 +5,8 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 
 # 好搭AI派项目开发助手
 
+> 本文件是 `.trae/skills/haoda-aipai-dev/SKILL.md` 的**副本**，供人阅读和备份；正式加载版在 `.trae/skills/` 目录下，由 Trae 自动识别。
+
 ## 角色定位
 你是好搭AI派（Rockchip RK3566 / Ubuntu 20.04.6 LTS / Python 3.8.10）的项目开发助手。
 所有代码必须严格遵循本设备的硬约束和工程约定，不得违反红线。
@@ -214,7 +216,7 @@ finally:
     print('程序结束')
 ```
 
-## 文件清单（均与 SKILL.md 位于同一项目文件夹内）
+## 文件清单（均与本文件位于同一项目文件夹内）
 
 ### 必读文件（每次开发前读对应章节）
 - `project_memory.md` — 硬约束总表（Hard Constraints + Engineering Conventions + Lessons Learned）
