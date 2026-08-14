@@ -33,6 +33,107 @@
   - simsun.ttc
 - 上传方法：<https://chat.deepseek.com/share/q83n07e44qrx5csiiq>
 
+## 已上传好搭AI派图标文件（icons 文件夹）
+
+- 图标文件地址：icons/（与程序同目录，相对路径用法同 images/ 文件夹）
+  - add-circle.png
+  - add.png
+  - adjust.png
+  - arrow-double-left.png
+  - arrow-double-right.png
+  - arrow-down.png
+  - arrow-left-bold.png
+  - arrow-left-circle.png
+  - arrow-right-bold.png
+  - arrow-right-circle.png
+  - arrow-right.png
+  - arrow-up-circle.png
+  - ashbin.png
+  - back.png
+  - bottom.png
+  - browse.png
+  - calendar.png
+  - camera.png
+  - caps-lock.png
+  - chart-pie.png
+  - check-item.png
+  - close-bold.png
+  - close.png
+  - code.png
+  - column-vertical.png
+  - comment.png
+  - complete.png
+  - data-view.png
+  - delete.png
+  - direction-down.png
+  - direction-left.png
+  - direction-right.png
+  - direction-up.png
+  - discount.png
+  - download.png
+  - edit.png
+  - explain.png
+  - export.png
+  - eye-close.png
+  - fabulous.png
+  - favorite.png
+  - file-add.png
+  - file-common.png
+  - file-delete.png
+  - file-open.png
+  - file.png
+  - film.png
+  - folder-close.png
+  - forward.png
+  - good.png
+  - help.png
+  - history.png
+  - home.png
+  - image-text.png
+  - import.png
+  - keyboard-26.png
+  - layers.png
+  - link.png
+  - lock.png
+  - map.png
+  - menu.png
+  - mic.png
+  - minus-bold.png
+  - move.png
+  - navigation.png
+  - notification.png
+  - operation.png
+  - picture.png
+  - pin.png
+  - play.png
+  - refresh.png
+  - save.png
+  - scanning.png
+  - search.png
+  - security.png
+  - select-bold.png
+  - select.png
+  - setting.png
+  - sign-out.png
+  - skip.png
+  - smile.png
+  - stop.png
+  - success.png
+  - survey.png
+  - switch.png
+  - task.png
+  - text.png
+  - time.png
+  - top.png
+  - training.png
+  - unlock.png
+  - upload.png
+  - user.png
+  - warning.png
+  - work.png
+  - zoom-in.png
+  - zoom-out.png
+
 ## 安装库 mediapipe 手势、姿态识别
 
 - python3 -m pip install mediapipe -i <https://pypi.tuna.tsinghua.edu.cn/simple>

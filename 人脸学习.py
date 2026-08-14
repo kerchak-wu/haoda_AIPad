@@ -108,8 +108,10 @@ FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
 CAMERA_W, CAMERA_H = 640, 480
 CAM_DISP_W, CAM_DISP_H = 800, 600
 
-# 人脸记录持久化文件
-FACE_DATA_FILE = 'face_records.json'
+# 人脸记录持久化文件（与 V3 SDK 的 face_database/ 目录统一管理）
+FACE_DATA_DIR = 'face_database'
+_os.makedirs(FACE_DATA_DIR, exist_ok=True)
+FACE_DATA_FILE = _os.path.join(FACE_DATA_DIR, 'face_records.json')
 
 # ---- 界面配色（浅色系）----
 BG_TOP = (135, 206, 235)        # 天空蓝

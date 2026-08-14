@@ -119,8 +119,10 @@ FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
 CAMERA_W, CAMERA_H = 1280, 720
 CAM_DISP_W, CAM_DISP_H = 880, 660
 
-# 物体记录文件（由 物体学习.py 生成）
-OBJECT_DATA_FILE = 'object_records.json'
+# 物体记录文件（由 物体学习.py 生成，与 V3 SDK 的 object_database/ 目录统一管理）
+OBJECT_DATA_DIR = 'object_database'
+_os.makedirs(OBJECT_DATA_DIR, exist_ok=True)
+OBJECT_DATA_FILE = _os.path.join(OBJECT_DATA_DIR, 'object_records.json')
 
 # ===================== 物体名称英文/拼音 → 中文映射 =====================
 # 好搭AI派不支持中文输入，物体学习时只能用英文/拼音命名；

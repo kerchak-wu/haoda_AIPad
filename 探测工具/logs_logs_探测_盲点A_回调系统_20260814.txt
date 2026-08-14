@@ -1,0 +1,187 @@
+盲点探测 A（V3回调系统，交互式）开始 - 2026-08-14 13:27:45.675739
+日志文件: logs/logs_探测_盲点A_回调系统_20260814.txt
+Python: 3.8.10 (default, Mar 18 2025, 20:04:55) 
+[GCC 9.4.0]
+
+======================================================================
+  A: V3 回调系统验证（交互式 + 语音提示）
+======================================================================
+
+  0. 初始化语音提示...
+  ✅ VoiceAPI 认证成功，TTS 可用
+  本脚本验证 V3 库的回调系统是否真正触发。
+  pygame 窗口将显示实时画面和倒计时。
+  请在倒计时结束后做以下动作（15秒）：
+    - 露脸（测试人脸识别回调）
+    - 出示二维码（测试 qr_code 回调）
+    - 出示颜色物体（测试 color 回调）
+  按 ESC 可随时退出
+
+  🔊 V3回调系统测试即将开始，请在提示后做动作
+
+  1. 创建视觉系统（按范例代码: enable_basic=False, camera_id=-1, 1280x720）
+  ✅ 视觉系统创建成功
+
+  2. 打开摄像头
+  open_camera() 返回: True
+
+  3. 启用检测算法（每启用一个都调 _init_detectors()）
+  enable_face_recognition = True
+  enable_qr_code = True
+  enable_color_recognition = True, 添加2个区域 [640x480空间]
+  enable_color_block = True
+  调用 _init_detectors()...
+  ✅ _init_detectors() 成功
+
+  4. 反射查找回调方法
+  threaded_system 回调方法(4): ['add_detection_callback', 'add_error_callback', 'add_frame_callback', 'remove_callback']
+
+  5. 注册回调
+  ✅ 注册: add_detection_callback
+  ✅ 注册: add_error_callback
+  ✅ 注册: add_frame_callback
+
+  6. 启动后台检测（show_preview=True）...
+  ✅ 后台检测已启动
+
+  7. 初始化 pygame 显示...
+  预热 3 秒...
+  🔊 准备开始，三秒后开始采集
+
+  8. 开始回调采集（分 3 个阶段，每段 5 秒）...
+
+  --- 阶段 1: Phase 1: Show Face [5s] ---
+  🔊 请露脸
+    [1/5s] {'frame': 52, 'detection': 52}
+    [1/5s] {'frame': 53, 'detection': 53}
+    [1/5s] {'frame': 53, 'detection': 53}
+    [1/5s] {'frame': 54, 'detection': 54}
+    [2/5s] {'frame': 56, 'detection': 56}
+    [2/5s] {'frame': 57, 'detection': 57}
+    [2/5s] {'frame': 58, 'detection': 58}
+    [2/5s] {'frame': 58, 'detection': 58}
+    [3/5s] {'frame': 61, 'detection': 61}
+    [3/5s] {'frame': 62, 'detection': 62}
+    [3/5s] {'frame': 62, 'detection': 62}
+    [3/5s] {'frame': 63, 'detection': 63}
+    [3/5s] {'frame': 64, 'detection': 64}
+    [4/5s] {'frame': 67, 'detection': 67}
+    [4/5s] {'frame': 67, 'detection': 67}
+    [4/5s] {'frame': 68, 'detection': 68}
+    [4/5s] {'frame': 68, 'detection': 68}
+    [5/5s] {'frame': 71, 'detection': 71}
+    [5/5s] {'frame': 72, 'detection': 72}
+    [5/5s] {'frame': 73, 'detection': 73}
+  🔊 换下一个
+
+  --- 阶段 2: Phase 2: Show QR Code [5s] ---
+  🔊 请出示二维码
+    [1/5s] {'frame': 104, 'detection': 104}
+    [1/5s] {'frame': 105, 'detection': 105}
+    [1/5s] {'frame': 106, 'detection': 106}
+    [1/5s] {'frame': 107, 'detection': 107}
+    [2/5s] {'frame': 111, 'detection': 111}
+    [2/5s] {'frame': 112, 'detection': 112}
+    [2/5s] {'frame': 113, 'detection': 113}
+    [2/5s] {'frame': 114, 'detection': 114}
+    [3/5s] {'frame': 118, 'detection': 118}
+    [3/5s] {'frame': 119, 'detection': 119}
+    [3/5s] {'frame': 120, 'detection': 120}
+    [3/5s] {'frame': 120, 'detection': 120}
+    [4/5s] {'frame': 124, 'detection': 124}
+    [4/5s] {'frame': 125, 'detection': 125}
+    [4/5s] {'frame': 126, 'detection': 126}
+    [4/5s] {'frame': 127, 'detection': 127}
+    [5/5s] {'frame': 130, 'detection': 130}
+    [5/5s] {'frame': 131, 'detection': 131}
+    [5/5s] {'frame': 132, 'detection': 132}
+    [5/5s] {'frame': 133, 'detection': 133}
+  🔊 换下一个
+
+  --- 阶段 3: Phase 3: Show Colored Object [5s] ---
+  🔊 请出示颜色物体
+    [1/5s] {'frame': 172, 'detection': 172}
+    [1/5s] {'frame': 173, 'detection': 173}
+    [1/5s] {'frame': 173, 'detection': 173}
+    [1/5s] {'frame': 174, 'detection': 174}
+    [2/5s] {'frame': 179, 'detection': 179}
+    [2/5s] {'frame': 180, 'detection': 180}
+    [2/5s] {'frame': 181, 'detection': 181}
+    [3/5s] {'frame': 184, 'detection': 184}
+    [3/5s] {'frame': 185, 'detection': 185}
+    [3/5s] {'frame': 186, 'detection': 186}
+    [3/5s] {'frame': 187, 'detection': 187}
+    [4/5s] {'frame': 190, 'detection': 190}
+    [4/5s] {'frame': 191, 'detection': 191}
+    [4/5s] {'frame': 191, 'detection': 191}
+    [4/5s] {'frame': 192, 'detection': 192}
+    [5/5s] {'frame': 197, 'detection': 197}
+    [5/5s] {'frame': 197, 'detection': 197}
+    [5/5s] {'frame': 198, 'detection': 198}
+    [5/5s] {'frame': 199, 'detection': 199}
+
+  9. 停止后台检测...
+  🔊 采集结束，感谢配合
+  停止 background_detection...
+  ✅ 已停止
+  cleanup...
+  ✅ cleanup 完成
+
+======================================================================
+  A: 回调触发统计结果
+======================================================================
+  detection: ✅ 触发 (226次)
+    参数类型: ['dict']
+    首次参数: ({'apriltag': [], 'black_line': {}, 'color_block': {'image_info': {'width': 640, 'height': 480, 'channels': 3}, 'detection_params': {'target_color': '红色', 'min_width': 30, 'min_height': 30, 'similarity_threshold': 0.5}, 'color_blocks': [], 'total_blocks': 0}, 'color_recognition': {'image_info': {'width': 640, 'height': 480, 'channels': 3}, 'regions': [{'name': '区域_1', 'region': (50, 100, 200, 200), 'rgb': (52, 87, 108), 'hex': '#34576c', 'area': 40000, 'position': {'x': 50, 'y': 100, 'width': 20
+  frame: ✅ 触发 (226次)
+    参数类型: ['ndarray', 'dict']
+    首次参数: (array([[[ 62,  48,  23],
+        [ 66,  51,  26],
+        [ 71,  52,  27],
+        ...,
+        [ 20,   0,   0],
+        [ 20,   2,   0],
+        [ 20,   2,   0]],
+
+       [[ 63,  52,  31],
+        [ 62,  50,  29],
+        [ 70,  50,  26],
+        ...,
+        [ 24,   0,   0],
+        [ 24,   0,   0],
+        [ 24,   0,   0]],
+
+       [[ 63,  55,  24],
+        [ 63,  55,  24],
+        [ 71,  53,  24],
+        ...,
+        [ 24,   0,   0],
+        [ 26,   0,   0],
+        [ 26,   0,   0]],
+
+    
+
+  ========== detection 回调 dict 结构分析 ==========
+  keys (14): ['apriltag', 'black_line', 'color_block', 'color_recognition', 'face_recognition', 'qr_code', 'plate_recognition', 'object_recognition', 'people_counter', 'image_classification', 'object_detection', 'pose_detection', 'facial_expression', 'timestamp']
+    apriltag: list (len=0, empty=True)
+    black_line: dict (keys=[], empty=True)
+    color_block: dict (keys=['image_info', 'detection_params', 'color_blocks', 'total_blocks'], empty=False)
+    color_recognition: dict (keys=['image_info', 'regions', 'basic_colors', 'color_threshold', 'total_regions', 'successful_regions'], empty=False)
+    face_recognition: dict (keys=['success', 'face_id', 'confidence', 'face_position', 'message'], empty=False)
+    qr_code: list (len=0, empty=True)
+    plate_recognition: dict (keys=[], empty=True)
+    object_recognition: dict (keys=[], empty=True)
+    people_counter: dict (keys=[], empty=True)
+    image_classification: dict (keys=[], empty=True)
+    object_detection: dict (keys=[], empty=True)
+    pose_detection: dict (keys=[], empty=True)
+    facial_expression: dict (keys=[], empty=True)
+    timestamp: float = 1786685328.594984
+
+  ========== frame 回调参数分析 ==========
+  参数1: ndarray, shape=(480, 640, 3)
+  参数2: dict
+  参数2 keys: ['apriltag', 'black_line', 'color_block', 'color_recognition', 'face_recognition', 'qr_code', 'plate_recognition', 'object_recognition', 'people_counter', 'image_classification', 'object_detection', 'pose_detection', 'facial_expression', 'timestamp']
+
+盲点探测 A 完成 - 2026-08-14 13:28:49.086542
+日志文件: logs/logs_探测_盲点A_回调系统_20260814.txt

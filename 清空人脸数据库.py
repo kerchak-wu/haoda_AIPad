@@ -35,8 +35,9 @@ import shutil
 from camera_vision_system_v3 import create_vision_system_v3
 
 
-# 人脸记录文件
-FACE_DATA_FILE = 'face_records.json'
+# 人脸记录文件（与 V3 SDK 的 face_database/ 目录统一管理）
+FACE_DATA_DIR = 'face_database'
+FACE_DATA_FILE = os.path.join(FACE_DATA_DIR, 'face_records.json')
 FACE_EFFECT_MAP_FILE = 'face_effect_map.json'
 
 # 视觉系统人脸特征数据库文件可能位置

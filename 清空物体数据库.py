@@ -36,8 +36,9 @@ import shutil
 from camera_vision_system_v3 import create_vision_system_v3
 
 
-# 应用层物体记录文件（由 物体学习.py 生成）
-OBJECT_DATA_FILE = 'object_records.json'
+# 应用层物体记录文件（由 物体学习.py 生成，与 V3 SDK 的 object_database/ 目录统一管理）
+OBJECT_DATA_DIR = 'object_database'
+OBJECT_DATA_FILE = os.path.join(OBJECT_DATA_DIR, 'object_records.json')
 
 # 视觉系统物体特征数据库文件可能位置
 # 注：detection_config.object_db_path（默认 'object_database'）会作为运行时

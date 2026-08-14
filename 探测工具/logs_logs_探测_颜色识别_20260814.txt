@@ -1,0 +1,260 @@
+颜色识别探测开始 - 2026-08-14 13:26:20.245499
+日志文件: logs/logs_探测_颜色识别_20260814.txt
+Python: 3.8.10 (default, Mar 18 2025, 20:04:55) 
+[GCC 9.4.0]
+
+======================================================================
+  颜色识别探测（基于范例代码）
+======================================================================
+
+  步骤1: 创建视觉系统
+  参数: camera_id=-1, width=1280, height=720, enable_basic=False, enable_advanced=False
+  ✅ 视觉系统创建成功
+  vision_system 类型: CameraVisionSystemV3
+
+  --- 调试: vision_system 关键属性 ---
+  vision_system.camera_config = CameraConfig
+  vision_system.detection_config = DetectionConfig
+  vision_system.threaded_system = ThreadedVisionSystem
+  vision_system.result_accessor = CompleteDetectionResultAccessor
+
+  步骤2: 打开摄像头
+  open_camera() 返回: True
+  ✅ 摄像头已打开
+
+  步骤3: 启用 color_recognition 算法
+  detection_config.enable_color_recognition = True ✅
+  当前 enable_color_recognition: True
+
+  步骤4: _init_detectors()（关键步骤）
+  ✅ _init_detectors() 调用成功
+
+  步骤5: 添加颜色识别区域
+  添加区域0: (50, 100, 200, 200)  [640x480空间, 左侧]
+  添加区域1: (390, 100, 200, 200)  [640x480空间, 右侧]
+  当前区域数: 2
+
+  --- 调试: detection_config 已启用的算法 ---
+  enable_color_recognition = True ✅
+
+  步骤6: 同时启用 color_block 算法
+  ✅ color_block 已启用并重新初始化检测器
+
+  步骤7: 启动后台检测
+  ✅ 后台检测已启动 (show_preview=True)
+
+  步骤8: 预热 3 秒...
+  ✅ 预热完成
+
+  步骤9: 开始采集 15 秒（请在摄像头前出示颜色物体）
+  将每秒读取 color_recognition 和 color_block 结果
+  result_accessor 类型: CompleteDetectionResultAccessor
+
+  --- 调试: result_accessor color 相关方法 ---
+  color 相关方法(12): ['get_color_block_area', 'get_color_block_center', 'get_color_block_color', 'get_color_block_count', 'get_color_block_position', 'get_color_recognition_color', 'get_color_recognition_count', 'get_color_recognition_name', 'get_color_recognition_rgb', 'get_largest_color_block_index', 'get_plate_recognition_color', 'has_color_block']
+
+  [1/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 蓝色
+    rgb:   (71, 77, 94)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 黄色
+    rgb:   (223, 216, 127)
+    name:  区域_2
+
+  [2/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (188, 183, 82)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (151, 165, 153)
+    name:  区域_2
+
+  [3/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (207, 190, 25)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 绿色
+    rgb:   (117, 141, 130)
+    name:  区域_2
+
+  [4/15s] color_recognition_count=2, color_block_count=1, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (227, 210, 53)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 绿色
+    rgb:   (80, 100, 71)
+    name:  区域_2
+  --- color_block 0 ---
+    color:    红色
+    position: (578, 154, 62, 74)
+    center:   (0, 0)
+    area:     4588
+
+  [5/15s] color_recognition_count=2, color_block_count=1, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (225, 209, 49)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 绿色
+    rgb:   (82, 105, 76)
+    name:  区域_2
+  --- color_block 0 ---
+    color:    红色
+    position: (580, 147, 60, 73)
+    center:   (0, 0)
+    area:     4380
+
+  [6/15s] color_recognition_count=2, color_block_count=1, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (225, 209, 47)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 绿色
+    rgb:   (97, 119, 95)
+    name:  区域_2
+  --- color_block 0 ---
+    color:    红色
+    position: (598, 141, 42, 68)
+    center:   (0, 0)
+    area:     2856
+
+  [7/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (200, 192, 82)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (131, 148, 146)
+    name:  区域_2
+
+  [8/15s] color_recognition_count=2, color_block_count=5, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (122, 123, 128)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 绿色
+    rgb:   (76, 96, 73)
+    name:  区域_2
+  --- color_block 0 ---
+    color:    红色
+    position: (360, 388, 120, 92)
+    center:   (0, 0)
+    area:     11040
+  --- color_block 1 ---
+    color:    红色
+    position: (566, 39, 74, 136)
+    center:   (0, 0)
+    area:     10064
+
+  [9/15s] color_recognition_count=2, color_block_count=6, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (172, 168, 156)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 红色
+    rgb:   (129, 99, 101)
+    name:  区域_2
+  --- color_block 0 ---
+    color:    红色
+    position: (406, 132, 111, 177)
+    center:   (0, 0)
+    area:     19647
+  --- color_block 1 ---
+    color:    红色
+    position: (313, 139, 85, 84)
+    center:   (0, 0)
+    area:     7140
+
+  [10/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (179, 188, 197)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (155, 160, 174)
+    name:  区域_2
+
+  [11/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (160, 163, 155)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (160, 161, 157)
+    name:  区域_2
+
+  [12/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (160, 163, 155)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (160, 161, 157)
+    name:  区域_2
+
+  [13/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (166, 169, 160)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (164, 165, 161)
+    name:  区域_2
+
+  [14/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 黄色
+    rgb:   (164, 160, 135)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 其他颜色
+    rgb:   (156, 153, 141)
+    name:  区域_2
+
+  [15/15s] color_recognition_count=2, color_block_count=0, face_count=0
+  --- color_recognition 区域 0 ---
+    color: 其他颜色
+    rgb:   (179, 183, 173)
+    name:  区域_1
+  --- color_recognition 区域 1 ---
+    color: 蓝色
+    rgb:   (18, 77, 109)
+    name:  区域_2
+
+  步骤10: 检查回调 dict 中的 color 字段
+  ✅ 回调已注册，等待 3 秒...
+  回调中 color_recognition: {'image_info': {'width': 640, 'height': 480, 'channels': 3}, 'regions': [{'name': '区域_1', 'region': (50, 100, 200, 200), 'rgb': (193, 193, 173), 'hex': '#c1c1ad', 'area': 40000, 'position': {'x': 50, 'y': 100, 'width': 200, 'height': 200}, 'color_label': '其他颜色', 'closest_basic_color': '其他颜色', 'color
+  回调中 color_block: {'image_info': {'width': 640, 'height': 480, 'channels': 3}, 'detection_params': {'target_color': '红色', 'min_width': 30, 'min_height': 30, 'similarity_threshold': 0.5}, 'color_blocks': [], 'total_blocks': 0}
+
+  清理资源...
+  ✅ 后台检测已停止
+  ✅ cleanup 完成
+
+======================================================================
+  总结
+======================================================================
+  关键发现:
+  1. _init_detectors() 是否成功: 见步骤4
+  2. color_recognition 是否有结果: 见步骤9 各秒 count
+  3. color_block 是否有结果: 见步骤9 各秒 count
+  4. 回调中 color 字段: 见步骤10
+
+颜色识别探测完成 - 2026-08-14 13:26:55.849124
+日志文件: logs/logs_探测_颜色识别_20260814.txt

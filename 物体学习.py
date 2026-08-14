@@ -123,8 +123,10 @@ FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
 CAMERA_W, CAMERA_H = 1280, 720
 CAM_DISP_W, CAM_DISP_H = 880, 660
 
-# 物体记录持久化文件
-OBJECT_DATA_FILE = 'object_records.json'
+# 物体记录持久化文件（与 V3 SDK 的 object_database/ 目录统一管理）
+OBJECT_DATA_DIR = 'object_database'
+os.makedirs(OBJECT_DATA_DIR, exist_ok=True)
+OBJECT_DATA_FILE = os.path.join(OBJECT_DATA_DIR, 'object_records.json')
 
 # ---- 界面配色（浅色系）----
 BG_TOP = (135, 206, 235)        # 天空蓝

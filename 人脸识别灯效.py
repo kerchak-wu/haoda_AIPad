@@ -106,8 +106,10 @@ LED_COUNT = 11          # 11颗灯珠
 CAMERA_W, CAMERA_H = 640, 480
 CAM_DISP_W, CAM_DISP_H = 880, 660
 
-# 人脸记录文件（由人脸学习.py生成）
-FACE_DATA_FILE = 'face_records.json'
+# 人脸记录文件（由人脸学习.py生成，与 V3 SDK 的 face_database/ 目录统一管理）
+FACE_DATA_DIR = 'face_database'
+_os.makedirs(FACE_DATA_DIR, exist_ok=True)
+FACE_DATA_FILE = _os.path.join(FACE_DATA_DIR, 'face_records.json')
 
 # 人脸-灯效映射文件（本程序自定义保存）
 FACE_EFFECT_MAP_FILE = 'face_effect_map.json'
