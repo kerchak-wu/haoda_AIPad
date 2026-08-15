@@ -50,7 +50,7 @@ print((vision_system.result_accessor.get_color_recognition_color(1)))  # 应该�
 
 #### D. 所有范例代码缺少 Rockchip 平台兼容性补丁
 
-- **缺少 `LIBGL_ALWAYS_SOFTWARE=1`**：范例顶部没有写 `import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`。如果程序用了 pygame/cv2，在 Rockchip RK3566 上可能触发 Mali GPU 驱动段错误。
+- **缺少 `LIBGL_ALWAYS_SOFTWARE=1`**：范例顶部没有写 `import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`。如果程序用了 pygame/cv2，在 Rockchip RK3588S 平台上可能触发 Mali GPU 驱动段错误。
 - **使用 `pygame.init()` 全初始化**：部分 pygame 相关范例（如人脸学习、物体学习）用了 `pygame.init()`，应改为 `pygame.display.init()` + `pygame.font.init()`，避免音频子系统异常。
 - **GPIO_BUTTON=0 相关代码保留**：范例中的板载按键（GPIO_IO_00）读取代码，实际硬件没有对应实体按键，可删除相关代码。
 

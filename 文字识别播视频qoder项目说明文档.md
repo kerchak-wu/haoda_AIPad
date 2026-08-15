@@ -2,7 +2,7 @@
 
 > **开发工具**：QoderWork（AI 桌面开发助手，多轮对话迭代开发）
 > **开发日期**：2026-08-08（初版单日完成，后续持续迭代优化至 v9）
-> **适用平台**：好搭AI派（ESP32 + Pygame 教育平板，Rockchip RK3566，Ubuntu + Python 3）
+> **适用平台**：好搭AI派（ESP32 + Pygame 教育平板，Rockchip RK3588S，Ubuntu + Python 3.8）
 > **程序文件**：`文字识别播视频qoder.py`（约 960 行，与本文档同目录）
 
 ---
@@ -125,7 +125,7 @@ sys.stderr = _TeeStdout(sys.stderr)
 
 ### 3.8 Rockchip 平台兼容性补丁
 
-为避免 Rockchip 平台（RK3566/RK3568）上 Pygame 与 OpenCV 的底层驱动冲突（GPU 驱动加载失败、音频驱动与 V4L2 死锁），程序开头加入四处补丁（参考《视觉系统摄像头调用参考方案》第 7 章）：
+为避免 Rockchip 平台（RK3588S / RK3566 / RK3568 系列通用）上 Pygame 与 OpenCV 的底层驱动冲突（GPU 驱动加载失败、音频驱动与 V4L2 死锁），程序开头加入四处补丁（参考《视觉系统摄像头调用参考方案》第 7 章）：
 
 ```python
 import os
@@ -151,7 +151,7 @@ except Exception as _e:
 
 ### 3.9 性能优化（ARM 软件渲染专项，v9）
 
-Rockchip RK3566 平台启用 `LIBGL_ALWAYS_SOFTWARE=1` 后，Pygame 所有渲染走软件路径，1920x1080 全屏渲染开销极大。本程序经过多轮性能调优，最终实现 30fps 流畅运行，关键优化如下：
+Rockchip 平台启用 `LIBGL_ALWAYS_SOFTWARE=1` 后，Pygame 所有渲染走软件路径，1920x1080 窗口渲染开销较大。本程序经过多轮性能调优，最终实现 30fps 流畅运行，关键优化如下：
 
 **1. 摄像头缓冲区清空（消除画面滞后的根因）**
 - V4L2 后端默认缓冲 3-5 帧，`cap.read()` 返回的是几帧前的陈旧画面，表现为"画面滞后几秒"

@@ -1,0 +1,1008 @@
+======================================================================
+好搭AI派 · 硬件规格探测程序
+探测时间：2026-08-15 15:20:48
+日志文件：logs/探测_硬件规格_20260815.log
+Python 版本：3.8.10
+说明：本脚本仅用于核对厂商宣传资料与实际硬件是否一致
+======================================================================
+
+======================================================================
+【1】SoC 型号 —— 判断是 RK3588 还是 RK3566（决定所有大小核/GPU/NPU/视频参数）
+======================================================================
+  $ cat /sys/devices/soc0/soc_id 2>/dev/null || echo "(无 soc_id)"
+      (无 soc_id)
+
+  $ cat /sys/devices/soc0/machine 2>/dev/null || echo "(无 machine)"
+      (无 machine)
+
+  $ cat /proc/device-tree/compatible 2>/dev/null | tr "\0" "\n" | head -5 || echo "(无 device-tree)"
+      rockchip,rk3588s-tablet-f12-v11
+      rockchip,rk3588
+
+  $ cat /sys/devices/soc0/revision 2>/dev/null || echo "(无 revision)"
+      (无 revision)
+
+  >>> 解读提示：
+      RK3588:  compatible 含 "rockchip,rk3588"
+      RK3588S: compatible 含 "rockchip,rk3588s"
+      RK3566:  compatible 含 "rockchip,rk3566"
+      若是 RK3588，则用户资料的 A76/G610/6TOPS/8K 视频规格全部成立
+      若是 RK3566，则用户资料的 A76/G610/6TOPS/8K 视频规格全部错误
+
+
+======================================================================
+【2】CPU 逐核心架构 —— 判断是否有 Cortex-A76 大核（用户资料：4×A76 + 4×A55）
+======================================================================
+  $ nproc --all
+      8
+
+  $ lscpu 2>/dev/null | head -30
+      架构：                           aarch64
+      CPU 运行模式：                   32-bit, 64-bit
+      字节序：                         Little Endian
+      CPU:                             8
+      在线 CPU 列表：                  0-7
+      每个核的线程数：                 1
+      每个座的核数：                   2
+      座：                             3
+      厂商 ID：                        ARM
+      型号：                           0
+      型号名称：                       Cortex-A55
+      步进：                           r2p0
+      CPU 最大 MHz：                   2352.0000
+      CPU 最小 MHz：                   408.0000
+      BogoMIPS：                       48.00
+      L1d 缓存：                       256 KiB
+      L1i 缓存：                       256 KiB
+      L2 缓存：                        1 MiB
+      L3 缓存：                        3 MiB
+      Vulnerability Itlb multihit:     Not affected
+      Vulnerability L1tf:              Not affected
+      Vulnerability Mds:               Not affected
+      Vulnerability Meltdown:          Not affected
+      Vulnerability Mmio stale data:   Not affected
+      Vulnerability Retbleed:          Not affected
+      Vulnerability Spec store bypass: Mitigation; Speculative Store Bypass disabled via prctl
+      Vulnerability Spectre v1:        Mitigation; __user pointer sanitization
+      Vulnerability Spectre v2:        Vulnerable: Unprivileged eBPF enabled
+      Vulnerability Srbds:             Not affected
+      Vulnerability Tsx async abort:   Not affected
+
+  $ grep -E "^(processor|model name|CPU implementer|CPU part|CPU variant|CPU revision|BogoMIPS|Features)" /proc/cpuinfo
+      processor	: 0
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x2
+      CPU part	: 0xd05
+      CPU revision	: 0
+      processor	: 1
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x2
+      CPU part	: 0xd05
+      CPU revision	: 0
+      processor	: 2
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x2
+      CPU part	: 0xd05
+      CPU revision	: 0
+      processor	: 3
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x2
+      CPU part	: 0xd05
+      CPU revision	: 0
+      processor	: 4
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x4
+      CPU part	: 0xd0b
+      CPU revision	: 0
+      processor	: 5
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x4
+      CPU part	: 0xd0b
+      CPU revision	: 0
+      processor	: 6
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x4
+      CPU part	: 0xd0b
+      CPU revision	: 0
+      processor	: 7
+      BogoMIPS	: 48.00
+      Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+      CPU implementer	: 0x41
+      CPU variant	: 0x4
+      CPU part	: 0xd0b
+      CPU revision	: 0
+
+  >>> 解读提示：
+      A76 = CPU implementer 0x41 / CPU part 0xd0b
+      A55 = CPU implementer 0x41 / CPU part 0xd05
+      如果只看到 0xd05 而没有 0xd0b，说明纯 A55（与 RK3566 一致）
+      如果 A76 + A55 都有，说明大小核异构（与 RK3588 一致，用户资料正确）
+      注意：/proc/cpuinfo 在 ARM big.LITTLE 上可能只显示当前在线核，
+           若全 A55，请配合第 1 项 compatible 判断
+
+
+======================================================================
+【3】GPU 型号 —— 判断是 Mali-G610 MP4 还是 Mali-G52
+======================================================================
+  $ for d in /sys/class/devfreq/*gpu*; do echo "[$d]"; echo -n "  compatible: "; cat "$d/device/of_node/compatible" 2>/dev/null | tr "\0" " "; echo; done
+      [/sys/class/devfreq/fb000000.gpu]
+        compatible: arm,mali-bifrost
+
+  $ ls /sys/class/devfreq/ 2>/dev/null | grep -i gpu
+      fb000000.gpu
+
+  $ ls /sys/class/misc/ 2>/dev/null | grep -i mali; ls /dev/mali* 2>/dev/null
+      mali0
+      /dev/mali0
+
+  $ dmesg 2>/dev/null | grep -i -E "mali|gpu" | head -10
+      [    3.218396] vdd_gpu_s0: supplied by vcc5v0_sys
+      [    5.834411] mali fb000000.gpu: Kernel DDK version g18p0-01eac0
+      [    5.835125] mali fb000000.gpu: bin=0
+      [    5.835301] mali fb000000.gpu: leakage=26
+      [    5.835336] debugfs: Directory 'fb000000.gpu-mali' with parent 'vdd_gpu_s0' already present!
+      [    5.841178] mali fb000000.gpu: pvtm=923
+      [    5.843406] mali fb000000.gpu: pvtm-volt-sel=5
+      [    5.844524] mali fb000000.gpu: avs=0
+      [    5.844563] W : [File] : drivers/gpu/arm/bifrost/platform/rk/mali_kbase_config_rk.c; [Line] : 143; [Func] : kbase_platform_rk_init(); power-off-delay-ms not available.
+      [    5.844860] mali fb000000.gpu: r0p0 status 5 not found in HW issues table;
+
+  >>> 解读提示：
+      Mali-G610: compatible 含 "mali-valhall" 或 "arm,mali-bifrost"
+      Mali-G52:  compatible 含 "arm,mali-bifrost" 或 "rockchip,rk3566-mali"
+      Mali-G610 MP4 = RK3588 标配；Mali-G52 2EE = RK3566 标配
+
+
+======================================================================
+【4】NPU 型号 + 频率 —— 判断是 6 TOPS（RK3588）还是 1 TOPS（RK3566）
+======================================================================
+  $ for d in /sys/class/devfreq/*npu*; do echo "[$d]"; echo -n "  compatible: "; cat "$d/device/of_node/compatible" 2>/dev/null | tr "\0" " "; echo; echo -n "  cur_freq: "; cat "$d/cur_freq" 2>/dev/null; echo " Hz"; echo -n "  available_freqs: "; cat "$d/available_frequencies" 2>/dev/null; echo; done
+      [/sys/class/devfreq/fdab0000.npu]
+        compatible: rockchip,rk3588-rknpu 
+        cur_freq: 1000000000
+       Hz
+        available_freqs: 300000000 400000000 500000000 600000000 700000000 800000000 900000000 1000000000
+
+  $ ls /dev/rknpu* 2>/dev/null; ls /sys/class/misc/rknpu 2>/dev/null; ls /sys/class/devfreq/ 2>/dev/null | grep -i npu
+      fdab0000.npu
+
+  $ strings /usr/lib/librknnrt.so 2>/dev/null | grep -i -E "rknn|version|target" | head -10
+      _ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES5_iEESaIiEFivEEESA_LN9__gnu_cxx12_Lock_policyE2EED2Ev
+      _ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES5_iEESaIiEFivEEESA_LN9__gnu_cxx12_Lock_policyE2EED1Ev
+      _ZNSt14_Function_base13_Base_managerINSt13__future_base12_Task_setterISt10unique_ptrINS1_7_ResultIiEENS1_12_Result_base8_DeleterEESt12_Bind_simpleIFSt17reference_wrapperISt5_BindIFPFiPN4rknn12RKNNExecutorEiESE_iEEEvEEiEEE10_M_managerERSt9_Any_dataRKSO_St18_Manager_operation
+      _ZTINSt13__future_base12_Task_setterISt10unique_ptrINS_7_ResultIiEENS_12_Result_base8_DeleterEESt12_Bind_simpleIFSt17reference_wrapperISt5_BindIFPFiPN4rknn12RKNNExecutorEiESC_iEEEvEEiEE
+      _ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES5_iEESaIiEFivEEESA_LN9__gnu_cxx12_Lock_policyE2EED0Ev
+      _ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES5_iEESaIiEFivEEESA_LN9__gnu_cxx12_Lock_policyE2EE10_M_destroyEv
+      _ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES5_iEESaIiEFivEEESA_LN9__gnu_cxx12_Lock_policyE2EE14_M_get_deleterERKSt9type_info
+      _ZNSt17_Function_handlerIFSt10unique_ptrINSt13__future_base12_Result_baseENS2_8_DeleterEEvENS1_12_Task_setterIS0_INS1_7_ResultIiEES3_ESt12_Bind_simpleIFSt17reference_wrapperISt5_BindIFPFiPN4rknn12RKNNExecutorEiESF_iEEEvEEiEEE9_M_invokeERKSt9_Any_data
+      _ZN4rknn7Logging16s_GlobalLogLevelE
+      _ZNSt13__future_base11_Task_stateISt5_BindIFPFiPN4rknn12RKNNExecutorEiES4_iEESaIiEFivEE8_M_resetEv
+
+  $ dmesg 2>/dev/null | grep -i -E "rknpu|npu" | head -10
+      [    3.318786] input: hall wake key as /devices/platform/hall-mh248/input/input0
+      [    3.319800] input: rk805 pwrkey as /devices/platform/feb20000.spi/spi_master/spi2/spi2.0/rk805-pwrkey.2.auto/input/input1
+      [    3.340445] vdd_npu_s0: supplied by vcc5v0_sys
+      [    3.546289] input: gsensor as /devices/platform/feab0000.i2c/i2c-3/3-0068/input/input2
+      [    3.546918] input: compass as /devices/platform/feab0000.i2c/i2c-3/3-000f/input/input3
+      [    3.547718] input: gslX680_r8 as /devices/platform/feac0000.i2c/i2c-4/4-0040/input/input4
+      [    5.642089] rkisp_hw fdcb0000.rkisp: max input:0x0@0fps
+      [    5.642385] rkisp_hw fdcc0000.rkisp: max input:0x0@0fps
+      [    5.874057] input: adc-keys as /devices/platform/adc-keys/input/input5
+      [    5.971162] RKNPU fdab0000.npu: Adding to iommu group 0
+
+  >>> 解读提示：
+      RK3588 NPU: 6 TOPS @ INT8，3 个 NPU core
+      RK3566 NPU: 1 TOPS @ INT8，1 个 NPU core
+      NPU 算力无法从 sysfs 直接读出，但可通过 compatible 字符串判断 SoC
+
+
+======================================================================
+【5】Wi-Fi 型号 & 能力 —— 判断是否支持 Wi-Fi 6（802.11ax）与 5GHz
+======================================================================
+  $ iw dev 2>/dev/null || echo "iw 不可用"
+      phy#0
+      	Unnamed/non-netdev interface
+      		wdev 0x2
+      		addr ba:2d:28:42:52:46
+      		type P2P-device
+      		txpower 31.00 dBm
+      	Interface wlan0
+      		ifindex 3
+      		wdev 0x1
+      		addr b8:2d:28:42:52:46
+      		ssid haoda7
+      		type managed
+      		channel 44 (5220 MHz), width: 80 MHz, center1: 5210 MHz
+      		txpower 31.00 dBm
+
+  $ iw list 2>/dev/null | grep -E "Wiphy|Frequencies|MHz|HE|VHT|HT capab|PHY name" | head -60
+      Wiphy phy0
+      		Frequencies:
+      			* 2412 MHz [1] (20.0 dBm)
+      			* 2417 MHz [2] (20.0 dBm)
+      			* 2422 MHz [3] (20.0 dBm)
+      			* 2427 MHz [4] (20.0 dBm)
+      			* 2432 MHz [5] (20.0 dBm)
+      			* 2437 MHz [6] (20.0 dBm)
+      			* 2442 MHz [7] (20.0 dBm)
+      			* 2447 MHz [8] (20.0 dBm)
+      			* 2452 MHz [9] (20.0 dBm)
+      			* 2457 MHz [10] (20.0 dBm)
+      			* 2462 MHz [11] (20.0 dBm)
+      			* 2467 MHz [12] (20.0 dBm)
+      			* 2472 MHz [13] (20.0 dBm)
+      			* 2484 MHz [14] (disabled)
+      		VHT Capabilities (0x0f815832):
+      			short GI (80 MHz)
+      		VHT RX MCS set:
+      		VHT RX highest supported: 0 Mbps
+      		VHT TX MCS set:
+      		VHT TX highest supported: 0 Mbps
+      		Frequencies:
+      			* 5170 MHz [34] (disabled)
+      			* 5180 MHz [36] (30.0 dBm)
+      			* 5190 MHz [38] (disabled)
+      			* 5200 MHz [40] (30.0 dBm)
+      			* 5210 MHz [42] (disabled)
+      			* 5220 MHz [44] (30.0 dBm)
+      			* 5230 MHz [46] (disabled)
+      			* 5240 MHz [48] (30.0 dBm)
+      			* 5260 MHz [52] (30.0 dBm) (no IR, radar detection)
+      			* 5280 MHz [56] (30.0 dBm) (no IR, radar detection)
+      			* 5300 MHz [60] (30.0 dBm) (no IR, radar detection)
+      			* 5320 MHz [64] (30.0 dBm) (no IR, radar detection)
+      			* 5500 MHz [100] (disabled)
+      			* 5520 MHz [104] (disabled)
+      			* 5540 MHz [108] (disabled)
+      			* 5560 MHz [112] (disabled)
+      			* 5580 MHz [116] (disabled)
+      			* 5600 MHz [120] (disabled)
+      			* 5620 MHz [124] (disabled)
+      			* 5640 MHz [128] (disabled)
+      			* 5660 MHz [132] (disabled)
+      			* 5680 MHz [136] (disabled)
+      			* 5700 MHz [140] (disabled)
+      			* 5720 MHz [144] (disabled)
+      			* 5745 MHz [149] (30.0 dBm)
+      			* 5765 MHz [153] (30.0 dBm)
+      			* 5785 MHz [157] (30.0 dBm)
+      			* 5805 MHz [161] (30.0 dBm)
+      			* 5825 MHz [165] (30.0 dBm)
+      	Device supports SAE with AUTHENTICATE command
+
+  $ ethtool -i wlan0 2>/dev/null || echo "ethtool 不可用或 wlan0 不存在"
+      driver: wl
+      version: 0
+      firmware-version: 
+      expansion-rom-version: 
+      bus-info: 
+      supports-statistics: no
+      supports-test: no
+      supports-eeprom-access: no
+      supports-register-dump: no
+      supports-priv-flags: no
+
+  $ lspci -nn 2>/dev/null | grep -i -E "network|wireless|wifi" || echo "无 PCI 网络设备"
+      0004:41:00.0 Network controller [0280]: Broadcom Inc. and subsidiaries Device [14e4:449d] (rev 02)
+
+  $ lsusb 2>/dev/null | grep -i -E "wireless|wifi|802\.11|realtek|rtl|mediatek|mtk|intel" || echo "无 USB 网络设备"
+      无 USB 网络设备
+
+  $ iwlist wlan0 frequency 2>/dev/null | head -20 || echo "iwlist 不可用"
+      wlan0     26 channels in total; available frequencies :
+                Channel 01 : 2.412 GHz
+                Channel 02 : 2.417 GHz
+                Channel 03 : 2.422 GHz
+                Channel 04 : 2.427 GHz
+                Channel 05 : 2.432 GHz
+                Channel 06 : 2.437 GHz
+                Channel 07 : 2.442 GHz
+                Channel 08 : 2.447 GHz
+                Channel 09 : 2.452 GHz
+                Channel 10 : 2.457 GHz
+                Channel 11 : 2.462 GHz
+                Channel 12 : 2.467 GHz
+                Channel 13 : 2.472 GHz
+                Channel 36 : 5.18 GHz
+                Channel 40 : 5.2 GHz
+                Channel 44 : 5.22 GHz
+                Channel 48 : 5.24 GHz
+                Channel 52 : 5.26 GHz
+                Channel 56 : 5.28 GHz
+
+  $ iwconfig wlan0 2>/dev/null || echo "iwconfig 不可用"
+      wlan0     IEEE 802.11  ESSID:"haoda7"  
+                Mode:Master  Frequency:5.22 GHz  Access Point: F8:6F:B0:D7:D8:B4   
+                Bit Rate=351 Mb/s   Tx-Power:32 dBm   
+                Retry min limit:7   RTS thr:off   Fragment thr:off
+                Encryption key:off
+                Power Management:off
+                Link Quality=4/5  Signal level=-58 dBm  Noise level=-87 dBm
+                Rx invalid nwid:0  Rx invalid crypt:0  Rx invalid frag:0
+                Tx excessive retries:0  Invalid misc:0   Missed beacon:0
+
+  $ dmesg 2>/dev/null | grep -i -E "wifi|wlan|rtw|rtl88|rtl81|mt79|ap6|fmac|sd8787" | head -15
+      [    3.231387] usbcore: registered new interface driver rtl8150
+      [    5.802242] [WLAN_RFKILL]: Enter rfkill_wlan_init
+      [    5.802515] [WLAN_RFKILL]: Enter rfkill_wlan_probe
+      [    5.802536] [WLAN_RFKILL]: can't find rockchip,grf property
+      [    5.802541] [WLAN_RFKILL]: wlan_platdata_parse_dt: wifi_chip_type = ap6275p
+      [    5.802546] [WLAN_RFKILL]: wlan_platdata_parse_dt: enable wifi power control.
+      [    5.802550] [WLAN_RFKILL]: wlan_platdata_parse_dt: wifi power controled by gpio.
+      [    5.802565] [WLAN_RFKILL]: wlan_platdata_parse_dt: WIFI,poweren_gpio = 23 flags = 0.
+      [    5.802581] [WLAN_RFKILL]: wlan_platdata_parse_dt: WIFI,host_wake_irq = 0, flags = 0.
+      [    5.802589] [WLAN_RFKILL]: wlan_platdata_parse_dt: The ref_wifi_clk not found !
+      [    5.802594] [WLAN_RFKILL]: rfkill_wlan_probe: init gpio
+      [    5.802599] [WLAN_RFKILL]: rfkill_set_wifi_bt_power: 1
+      [    5.802604] [WLAN_RFKILL]: Exit rfkill_wlan_probe
+      [    8.313795] [dhd] _dhd_module_init: in Dongle Host Driver, version 101.10.361.25 (wlan=r892223-20220929-2)
+                     /home/cxdz-ssd/work/work_rk/F12linux/rk3588s-fily-linux/external/rkwifibt/drivers/bcmdhd compiled on Dec 13 2023 at 11:48:35
+
+  >>> 解读提示：
+      Wi-Fi 6 (802.11ax): iw list 输出含 "HE" 字段（High Efficiency）
+      Wi-Fi 5 (802.11ac): iw list 输出含 "VHT" 字段（Very High Throughput）
+      仅 2.4G: Frequencies 列表只有 2412~2484 MHz，无 5180~5825 MHz
+      常见模组型号：
+          RTL8852BE / RTL8852BU = Wi-Fi 6
+          RTL8188 / RTL8723 = 2.4G only
+          AP6256 / AP6398 = Wi-Fi 5 或 Wi-Fi 6（看具体型号）
+      注意：若实测仅 2.4G 但 SoC 是 RK3588，可能出厂换装了低成本模组
+
+
+======================================================================
+【6】蓝牙版本 —— 判断是否支持蓝牙 5.0
+======================================================================
+  $ hciconfig -a 2>/dev/null || echo "hciconfig 不可用"
+      hci0:	Type: Primary  Bus: UART
+      	BD Address: 73:55:C6:02:56:65  ACL MTU: 1021:8  SCO MTU: 64:1
+      	DOWN 
+      	RX bytes:754 acl:0 sco:0 events:44 errors:0
+      	TX bytes:472 acl:0 sco:0 commands:44 errors:0
+      	Features: 0xbf 0xfe 0xcf 0xfe 0xdb 0xff 0x7b 0x87
+      	Packet type: DM1 DM3 DM5 DH1 DH3 DH5 HV1 HV2 HV3 
+      	Link policy: RSWITCH SNIFF 
+      	Link mode: SLAVE ACCEPT
+
+  $ hcitool dev 2>/dev/null || echo "hcitool 不可用"
+      Devices:
+
+  $ bluetoothctl show 2>/dev/null || echo "bluetoothctl 不可用"
+      Controller 73:55:C6:02:56:65 (public)
+      	Name: HaoDa-Pi
+      	Alias: HaoDa-Pi
+      	Class: 0x00000000
+      	Powered: no
+      	Discoverable: no
+      	DiscoverableTimeout: 0x000000b4
+      	Pairable: yes
+      	UUID: Message Notification Se.. (00001133-0000-1000-8000-00805f9b34fb)
+      	UUID: A/V Remote Control        (0000110e-0000-1000-8000-00805f9b34fb)
+      	UUID: OBEX Object Push          (00001105-0000-1000-8000-00805f9b34fb)
+      	UUID: Message Access Server     (00001132-0000-1000-8000-00805f9b34fb)
+      	UUID: PnP Information           (00001200-0000-1000-8000-00805f9b34fb)
+      	UUID: IrMC Sync                 (00001104-0000-1000-8000-00805f9b34fb)
+      	UUID: Vendor specific           (00005005-0000-1000-8000-0002ee000001)
+      	UUID: Headset AG                (00001112-0000-1000-8000-00805f9b34fb)
+      	UUID: A/V Remote Control Target (0000110c-0000-1000-8000-00805f9b34fb)
+      	UUID: Generic Attribute Profile (00001801-0000-1000-8000-00805f9b34fb)
+      	UUID: Phonebook Access Server   (0000112f-0000-1000-8000-00805f9b34fb)
+      	UUID: Audio Sink                (0000110b-0000-1000-8000-00805f9b34fb)
+      	UUID: Generic Access Profile    (00001800-0000-1000-8000-00805f9b34fb)
+      	UUID: Headset                   (00001108-0000-1000-8000-00805f9b34fb)
+      	UUID: Audio Source              (0000110a-0000-1000-8000-00805f9b34fb)
+      	UUID: OBEX File Transfer        (00001106-0000-1000-8000-00805f9b34fb)
+      	Modalias: usb:v1D6Bp0246d0535
+      	Discovering: no
+      Advertising Features:
+      	ActiveInstances: 0x00
+      	SupportedInstances: 0x06
+      	SupportedIncludes: tx-power
+      	SupportedIncludes: appearance
+      	SupportedIncludes: local-name
+      	SupportedSecondaryChannels: 1M
+      	SupportedSecondaryChannels: 2M
+      	SupportedSecondaryChannels: Coded
+
+  $ rfkill list 2>/dev/null || echo "rfkill 不可用"
+      0: bt_default: Bluetooth
+      	Soft blocked: no
+      	Hard blocked: no
+      1: phy0: Wireless LAN
+      	Soft blocked: no
+      	Hard blocked: no
+      2: brcmfmac-wifi: Wireless LAN
+      	Soft blocked: no
+      	Hard blocked: no
+      3: hci0: Bluetooth
+      	Soft blocked: yes
+      	Hard blocked: no
+
+  $ dmesg 2>/dev/null | grep -i -E "bluetooth|btusb|hci|btbcm|btrtl" | head -15
+      [    2.898049] Bluetooth: Core ver 2.22
+      [    2.898062] Bluetooth: HCI device and connection manager initialized
+      [    2.898066] Bluetooth: HCI socket layer initialized
+      [    2.898070] Bluetooth: L2CAP socket layer initialized
+      [    2.898075] Bluetooth: SCO socket layer initialized
+      [    3.238651] ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+      [    3.238659] ehci-pci: EHCI PCI platform driver
+      [    3.238684] ehci-platform: EHCI generic platform driver
+      [    3.240873] ehci-platform fc800000.usb: EHCI Host Controller
+      [    3.240926] ehci-platform fc800000.usb: new USB bus registered, assigned bus number 1
+      [    3.240978] ehci-platform fc800000.usb: irq 20, io mem 0xfc800000
+      [    3.256242] ehci-platform fc800000.usb: USB 2.0 started, EHCI 1.00
+      [    3.256313] usb usb1: Product: EHCI Host Controller
+      [    3.256317] usb usb1: Manufacturer: Linux 5.10.160 ehci_hcd
+      [    3.256748] ohci_hcd: USB 1.1 'Open' Host Controller (OHCI) Driver
+
+  >>> 解读提示：
+      BT 5.0: dmesg 出现 "LE 5.0" 或 "Bluetooth: hci0: setting up" + 5.0 字样
+      BT 4.2: 较老的 ESP32/BLE 模组
+      常见模组：RTL8852BE=BT 5.0；AP6256=BT 4.2；AP6398S=BT 5.0
+      注意：蓝牙通常与 WiFi 同模组，WiFi 测出型号即可查蓝牙版本
+
+
+======================================================================
+【7】屏幕分辨率 —— 核验是 1920×1080 横屏还是 1200×1920 竖屏
+======================================================================
+  $ xrandr 2>/dev/null || echo "xrandr 不可用（可能无 X 或不在桌面环境）"
+      xrandr 不可用（可能无 X 或不在桌面环境）
+
+  $ fbset 2>/dev/null || echo "fbset 不可用"
+      mode "1200x1920"
+          geometry 1200 1920 1200 1920 32
+          timings 0 0 0 0 0 0 0
+          accel true
+          rgba 8/16,8/8,8/0,0/0
+      endmode
+
+  $ cat /sys/class/graphics/fb0/virtual_size 2>/dev/null; cat /sys/class/graphics/fb0/modes 2>/dev/null
+      1200,1920
+      U:1200x1920p-0
+
+  $ for c in /sys/class/drm/card0-*/; do echo "[$c]"; echo -n "  status: "; cat "$c/status" 2>/dev/null; echo -n "  modes: "; cat "$c/modes" 2>/dev/null | tr "\n" " "; echo; done
+      [/sys/class/drm/card0-DP-1/]
+        status: disconnected
+        modes: 
+      [/sys/class/drm/card0-DSI-1/]
+        status: connected
+        modes: 1200x1920 
+      [/sys/class/drm/card0-Writeback-1/]
+        status: unknown
+        modes: 
+      [/sys/class/drm/card0-eDP-1/]
+        status: disconnected
+        modes:
+
+  $ ls /sys/class/drm/ 2>/dev/null; ls /sys/class/graphics/ 2>/dev/null
+      card0
+      card0-DP-1
+      card0-DSI-1
+      card0-eDP-1
+      card0-Writeback-1
+      card1
+      renderD128
+      renderD129
+      version
+      fb0
+
+  $ dmesg 2>/dev/null | grep -i -E "drm|hdmi|panel|dsi|lvds|edp" | head -20
+      [    1.407286] OF: fdt: Reserved memory: failed to reserve memory for node 'drm-cubic-lut@00000000': base 0x0000000000000000, size 0 MiB
+      [    3.198317] rockchip-vop2 fdd90000.vop: [drm:vop2_bind] vp0 assign plane mask: 0x5, primary plane phy id: 2
+      [    3.198325] rockchip-vop2 fdd90000.vop: [drm:vop2_bind] vp1 assign plane mask: 0xa, primary plane phy id: 3
+      [    3.198330] rockchip-vop2 fdd90000.vop: [drm:vop2_bind] vp2 assign plane mask: 0x140, primary plane phy id: 8
+      [    3.198335] rockchip-vop2 fdd90000.vop: [drm:vop2_bind] vp3 assign plane mask: 0x280, primary plane phy id: 9
+      [    3.205906] rockchip-drm display-subsystem: bound fdd90000.vop (ops 0xffffffc0095cea78)
+      [    3.206156] rockchip-drm display-subsystem: bound fdec0000.edp (ops 0xffffffc0095dc180)
+      [    3.206186] dw-mipi-dsi2 fde20000.dsi: [drm:dw_mipi_dsi2_bind] *ERROR* Failed to find panel or bridge: -517
+      [    3.209968] panel-simple-dsi fde20000.dsi.0: failed to get power regulator: -517
+      [    5.638305] rkcif rkcif-mipi-lvds2: Adding to iommu group 16
+      [    5.638316] rkcif rkcif-mipi-lvds2: rkcif driver version: v00.02.00
+      [    5.638349] rkcif rkcif-mipi-lvds2: attach to cif hw node
+      [    5.638353] rkcif rkcif-mipi-lvds2: rkcif wait line 0
+      [    5.639118] rkcif rkcif-mipi-lvds2: No memory-region-thunderboot specified
+      [    5.639172] rkcif rkcif-mipi-lvds3: Adding to iommu group 16
+      [    5.639183] rkcif rkcif-mipi-lvds3: rkcif driver version: v00.02.00
+      [    5.639212] rkcif rkcif-mipi-lvds3: attach to cif hw node
+      [    5.639217] rkcif rkcif-mipi-lvds3: rkcif wait line 0
+      [    5.639944] rkcif rkcif-mipi-lvds3: No memory-region-thunderboot specified
+      [    5.641262] rkcif rkcif-mipi-lvds2: Entity type for entity rockchip-mipi-csi2 was not initialized!
+
+  >>> 解读提示：
+      好搭AI派项目代码（weather_app/人脸学习/表情识别等 10+ 个）统一用 1920×1080 横屏
+      若实测 1920×1080 横屏：用户资料错误（1200×1920 是另一款好搭 AI Pad 1 的参数）
+      若实测 1200×1920 竖屏：用户资料正确，原项目代码需适配旋转
+
+
+======================================================================
+【8】扬声器 / 音频 codec —— 核验是否双扬声器（软件层只能看 codec，扬声器数量需现场听音）
+======================================================================
+  $ aplay -l 2>/dev/null || echo "aplay 不可用"
+      **** PLAYBACK 硬體裝置清單 ****
+      card 0: rockchipes8388c [rockchip,es8388-codec], device 0: dailink-multicodecs ES8323.7-0011-0 [dailink-multicodecs ES8323.7-0011-0]
+        子设备: 1/1
+        子设备 #0: subdevice #0
+
+  $ amixer 2>/dev/null | head -30
+      Simple mixer control 'Headphone',0
+        Capabilities: pswitch pswitch-joined
+        Playback channels: Mono
+        Mono: Playback [off]
+      Simple mixer control 'Speaker',0
+        Capabilities: pswitch pswitch-joined
+        Playback channels: Mono
+        Mono: Playback [on]
+      Simple mixer control 'PCM',0
+        Capabilities: volume
+        Playback channels: Front Left - Front Right
+        Capture channels: Front Left - Front Right
+        Limits: 0 - 192
+        Front Left: 179 [93%] [-6.50dB]
+        Front Right: 179 [93%] [-6.50dB]
+      Simple mixer control 'I2STDM Digital Loopback Mode',0
+        Capabilities: enum
+        Items: 'Disabled' 'Mode1' 'Mode2' 'Mode2 Swap'
+        Item0: 'Disabled'
+      Simple mixer control 'Mono Mux',0
+        Capabilities: enum
+        Items: 'Stereo' 'Mono (Left)' 'Mono (Right)'
+        Item0: 'Stereo'
+      Simple mixer control 'Playback De-emphasis',0
+        Capabilities: enum
+        Items: 'None' '32Khz' '44.1Khz' '48Khz'
+        Item0: 'None'
+      Simple mixer control 'Capture Digital',0
+        Capabilities: volume
+        Playback channels: Front Left - Front Right
+
+  $ for d in /sys/class/sound/*; do echo "[$d]"; echo -n "  compatible: "; cat "$d/of_node/compatible" 2>/dev/null | tr "\0" " "; echo; done
+      [/sys/class/sound/card0]
+        compatible: 
+      [/sys/class/sound/controlC0]
+        compatible: 
+      [/sys/class/sound/pcmC0D0c]
+        compatible: 
+      [/sys/class/sound/pcmC0D0p]
+        compatible: 
+      [/sys/class/sound/seq]
+        compatible: 
+      [/sys/class/sound/timer]
+        compatible:
+
+  $ cat /proc/asound/cards 2>/dev/null; cat /proc/asound/card0/pcm0p/info 2>/dev/null
+      0 [rockchipes8388c]: rockchip_es8388 - rockchip,es8388-codec
+                            rockchip,es8388-codec
+      card: 0
+      device: 0
+      subdevice: 0
+      stream: PLAYBACK
+      id: dailink-multicodecs ES8323.7-0011-0
+      name: dailink-multicodecs ES8323.7-0011-0
+      subname: subdevice #0
+      class: 0
+      subclass: 0
+      subdevices_count: 1
+      subdevices_avail: 1
+
+  $ dmesg 2>/dev/null | grep -i -E "es8323|es8316|es8388|codec|rt5651|alc|rk817" | head -15
+      [    1.738263] rcu: RCU calculated value of scheduler-enlistment delay is 30 jiffies.
+      [    1.868579] Calibrating delay loop (skipped), value calculated using timer frequency.. 48.00 BogoMIPS (lpj=80000)
+      [    3.317982] usbserial: USB Serial support registered for Qualcomm USB modem
+      [    5.738791] rk-multicodecs es8388-sound: Failed to get ADC channel
+      [    5.750872] ES8323 7-0011: ASoC: error at soc_component_write_no_lock on ES8323.7-0011: -5
+      [    5.794579] rk-multicodecs es8388-sound: Don't need to map headset detect gpio to irq
+      [    6.003426]   #0: rockchip,es8388-codec
+
+  >>> 解读提示：
+      实测 codec 已知为 ES8323（探测_系统环境.py 已确认）
+      ES8323 是立体声 codec（2 声道 HP-OUT + 2 声道 SPK-OUT）
+      软件层无法判定是单/双扬声器，需现场听音或拆机确认
+
+
+======================================================================
+【9】I2C 传感器扫描 —— 核验板载传感器清单（指南针/陀螺仪/G-Sensor/霍尔开关）
+======================================================================
+  注意：i2cdetect 需 root 权限，若非 root 可能失败
+  $ ls /dev/i2c-* 2>/dev/null; i2cdetect -l 2>/dev/null || echo "i2cdetect 不可用"
+      /dev/i2c-0
+      /dev/i2c-10
+      /dev/i2c-2
+      /dev/i2c-3
+      /dev/i2c-4
+      /dev/i2c-5
+      /dev/i2c-6
+      /dev/i2c-7
+      /dev/i2c-9
+      i2c-3	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-10	i2c       	DP-AUX                          	I2C adapter
+      i2c-6	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-4	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-2	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-0	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-9	i2c       	fde50000.dp                     	I2C adapter
+      i2c-7	i2c       	rk3x-i2c                        	I2C adapter
+      i2c-5	i2c       	rk3x-i2c                        	I2C adapter
+
+  $ i2cdetect -y -r 0 2>/dev/null || echo "(无 i2c-0 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- UU UU -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 1 2>/dev/null || echo "(无 i2c-1 或无权限)"
+      (无 i2c-1 或无权限)
+
+  $ i2cdetect -y -r 2 2>/dev/null || echo "(无 i2c-2 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- UU -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 3 2>/dev/null || echo "(无 i2c-3 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- UU 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- 24 -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- UU -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 4 2>/dev/null || echo "(无 i2c-4 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: UU -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 5 2>/dev/null || echo "(无 i2c-5 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- UU -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- UU UU -- -- -- -- -- -- -- -- 
+      40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 6 2>/dev/null || echo "(无 i2c-6 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- UU -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- UU -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- UU -- -- -- -- -- -- -- UU -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 7 2>/dev/null || echo "(无 i2c-7 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- UU -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ i2cdetect -y -r 8 2>/dev/null || echo "(无 i2c-8 或无权限)"
+      (无 i2c-8 或无权限)
+
+  $ i2cdetect -y -r 9 2>/dev/null || echo "(无 i2c-9 或无权限)"
+      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+      00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+      70: -- -- -- -- -- -- -- --
+
+  $ dmesg 2>/dev/null | grep -i -E "accel|gyro|mag|compass|bma|mpu|icm|lsm|qmi|hall|stk|ltr|apds|iio" | head -20
+      [    3.318786] input: hall wake key as /devices/platform/hall-mh248/input/input0
+      [    3.318879] mh248 hall-mh248: hall_mh248_probe success.
+      [    3.346342] gsensor_mpu6500 3-0068: sensor_register_device: mpu6500_acc, id = 29
+      [    3.346351] i2c i2c-3: sensor_probe: mpu6500_acc,000000001d7acbbb
+      [    3.346372] gsensor_mpu6500 3-0068: sensor_chip_init:mpu6500_acc:devid=0x0,ops=0x0000000093dde5ae
+      [    3.546354] gsensor_mpu6500 3-0068: sensor_irq_init:use polling,delay=30 ms
+      [    3.546408] gsensor_mpu6500 3-0068: sensor_misc_device_register:miscdevice: mma8452_daemon
+      [    3.546413] gsensor_mpu6500 3-0068: sensor_probe:initialized ok,sensor name:mpu6500_acc,type:2,id=29
+      [    3.546483] compass_akm8963 3-000f: sensor_register_device: akm8963, id = 40
+      [    3.546621] compass_akm8963 3-000f: sensor_chip_init:ak8963:devid=0x48,ops=0x00000000f778237d
+      [    3.546918] input: compass as /devices/platform/feab0000.i2c/i2c-3/3-000f/input/input3
+      [    3.546970] compass_akm8963 3-000f: sensor_irq_init:use polling,delay=30 ms
+      [    3.547020] compass_akm8963 3-000f: sensor_misc_device_register:miscdevice: compass
+      [    3.547024] compass_akm8963 3-000f: sensor_probe:initialized ok,sensor name:akm8963,type:3,id=40
+      [    6.002534] rockchip-suspend not set sleep-mode-config for mem-ultra
+      [    6.002539] rockchip-suspend not set wakeup-config for mem-ultra
+      [    8.413342] [dhd] dhd_os_open_image1: /vendor/etc/firmware/config.txt (240 bytes) open success
+      [    8.414651] [dhd] dhd_os_open_image1: /vendor/etc/firmware/fw_bcm43752a2_pcie_ag.bin (936074 bytes) open success
+      [    8.518812] [dhd] dhd_os_open_image1: /vendor/etc/firmware/nvram_AP6275P.txt (7458 bytes) open success
+      [    8.631679] [dhd] dhd_bus_hostready : Read PCICMD Reg: 0x00100006
+
+  $ for i in /sys/class/input/input*/; do echo "[$i]"; echo -n "  name: "; cat "$i/name" 2>/dev/null; echo -n "  compatible: "; cat "$i/of_node/compatible" 2>/dev/null | tr "\0" " "; echo; done
+      [/sys/class/input/input0/]
+        name: hall wake key
+        compatible: 
+      [/sys/class/input/input1/]
+        name: rk805 pwrkey
+        compatible: 
+      [/sys/class/input/input2/]
+        name: gsensor
+        compatible: 
+      [/sys/class/input/input3/]
+        name: compass
+        compatible: 
+      [/sys/class/input/input4/]
+        name: gslX680_r8
+        compatible: 
+      [/sys/class/input/input5/]
+        name: adc-keys
+        compatible:
+
+  $ ls /sys/bus/iio/devices/ 2>/dev/null; for d in /sys/bus/iio/devices/iio:device*/; do echo "[$d]"; echo -n "  name: "; cat "$d/name" 2>/dev/null; echo; done
+      iio:device0
+      iio_sysfs_trigger
+      [/sys/bus/iio/devices/iio:device0/]
+        name: fec10000.saradc
+
+  >>> 解读提示：
+      常见 I2C 地址：
+          0x0d = AK8963/QMC7983 指南针
+          0x1e = HMC5883L 指南针
+          0x68 = MPU6050/ICM42688 陀螺+加速度
+          0x6a = LSM6DS3 6 轴
+          0x19 / 0x18 = LIS3DH/LSM303 加速度
+          0x44 = APDS9960/SGP30 光照/手势
+          0x29 = TCS34725 颜色/光照
+          0x39 = LTR-553 光照+距离
+      实际型号看 dmesg / input 设备名 / iio 设备名
+      霍尔开关通常不挂 I2C，而是 GPIO，dmesg 或 /proc/device-tree 中搜 hall
+
+
+======================================================================
+【10】电池 + 充电 —— 核验 5000mAh + 20W 快充
+======================================================================
+  $ ls /sys/class/power_supply/ 2>/dev/null || echo "无 power_supply"
+      bq25890-charger
+      cw2015-battery
+      tcpm-source-psy-6-0022
+
+  $ for p in /sys/class/power_supply/*; do [ -d "$p" ] || continue; dev=$(basename "$p"); echo "=== [$dev] ==="; for k in capacity status voltage_now current_now power_now technology manufacturer model_name charge_full charge_full_design energy_full energy_full_design cycle_count temp present online type usb_type; do [ -f "$p/$k" ] && echo "  $k = $(cat $p/$k 2>/dev/null)"; done; done
+      === [bq25890-charger] ===
+        status = Discharging
+        voltage_now = 3964000
+        current_now = 0
+        manufacturer = Texas Instruments
+        model_name = BQ25890
+        online = 0
+        type = USB
+      === [cw2015-battery] ===
+        capacity = 82
+        status = Discharging
+        voltage_now = 3967000
+        current_now = 0
+        technology = Li-ion
+        charge_full = 0
+        charge_full_design = 0
+        present = 1
+        type = Battery
+      === [tcpm-source-psy-6-0022] ===
+        voltage_now = 0
+        current_now = 0
+        online = 0
+        type = USB
+        usb_type = [C] PD PD_PPS
+
+  $ for p in /sys/class/power_supply/*; do echo "=== [$p/uevent] ==="; cat "$p/uevent" 2>/dev/null; done
+      === [/sys/class/power_supply/bq25890-charger/uevent] ===
+      POWER_SUPPLY_NAME=bq25890-charger
+      POWER_SUPPLY_TYPE=USB
+      POWER_SUPPLY_MANUFACTURER=Texas Instruments
+      POWER_SUPPLY_MODEL_NAME=BQ25890
+      POWER_SUPPLY_STATUS=Discharging
+      POWER_SUPPLY_CHARGE_TYPE=N/A
+      POWER_SUPPLY_ONLINE=0
+      POWER_SUPPLY_HEALTH=Good
+      POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=2496000
+      POWER_SUPPLY_CONSTANT_CHARGE_VOLTAGE=0
+      POWER_SUPPLY_CONSTANT_CHARGE_VOLTAGE_MAX=4400000
+      POWER_SUPPLY_PRECHARGE_CURRENT=128000
+      POWER_SUPPLY_CHARGE_TERM_CURRENT=64000
+      POWER_SUPPLY_INPUT_CURRENT_LIMIT=500000
+      POWER_SUPPLY_VOLTAGE_NOW=3984000
+      POWER_SUPPLY_CURRENT_NOW=0
+      === [/sys/class/power_supply/cw2015-battery/uevent] ===
+      POWER_SUPPLY_NAME=cw2015-battery
+      POWER_SUPPLY_TYPE=Battery
+      POWER_SUPPLY_CAPACITY=82
+      POWER_SUPPLY_CAPACITY_LEVEL=High
+      POWER_SUPPLY_STATUS=Discharging
+      POWER_SUPPLY_PRESENT=1
+      POWER_SUPPLY_VOLTAGE_NOW=3967000
+      POWER_SUPPLY_TIME_TO_EMPTY_NOW=218
+      POWER_SUPPLY_TECHNOLOGY=Li-ion
+      POWER_SUPPLY_CHARGE_COUNTER=0
+      POWER_SUPPLY_CHARGE_FULL=0
+      POWER_SUPPLY_CHARGE_FULL_DESIGN=0
+      POWER_SUPPLY_CURRENT_NOW=0
+      === [/sys/class/power_supply/tcpm-source-psy-6-0022/uevent] ===
+      POWER_SUPPLY_NAME=tcpm-source-psy-6-0022
+      POWER_SUPPLY_TYPE=USB
+      POWER_SUPPLY_USB_TYPE=[C] PD PD_PPS
+      POWER_SUPPLY_ONLINE=0
+      POWER_SUPPLY_VOLTAGE_MIN=0
+      POWER_SUPPLY_VOLTAGE_MAX=0
+      POWER_SUPPLY_VOLTAGE_NOW=0
+      POWER_SUPPLY_CURRENT_MAX=0
+      POWER_SUPPLY_CURRENT_NOW=0
+
+  $ dmesg 2>/dev/null | grep -i -E "battery|charger|charging|cw2015|bq2589|rk817|fuel gauge|power" | head -20
+      [    1.927402] thermal_sys: Registered thermal governor 'power_allocator'
+      [    1.928075] thermal thermal_zone1: power_allocator: sustainable_power will be estimated
+      [    1.929422] thermal thermal_zone2: power_allocator: sustainable_power will be estimated
+      [    1.930172] thermal thermal_zone3: power_allocator: sustainable_power will be estimated
+      [    1.930922] thermal thermal_zone4: power_allocator: sustainable_power will be estimated
+      [    1.931674] thermal thermal_zone5: power_allocator: sustainable_power will be estimated
+      [    1.932424] thermal thermal_zone6: power_allocator: sustainable_power will be estimated
+      [    3.173903] pwm-backlight backlight: supply power not found, using dummy regulator
+      [    3.209968] panel-simple-dsi fde20000.dsi.0: failed to get power regulator: -517
+      [    5.623917] dw9714 5-000c: dw9714_set_power(1040) on(1)
+      [    5.652450] power_supply cw2015-battery: Not all required supplies found, defer probe
+      [    5.666114] xcp_bq25890_register_cg_psy,1192
+      [    5.666954] bq25890-charger 6-006a: bq25890 notify_psy is error
+      [    5.802546] [WLAN_RFKILL]: wlan_platdata_parse_dt: enable wifi power control.
+      [    5.802550] [WLAN_RFKILL]: wlan_platdata_parse_dt: wifi power controled by gpio.
+      [    5.802565] [WLAN_RFKILL]: wlan_platdata_parse_dt: WIFI,poweren_gpio = 23 flags = 0.
+      [    5.802599] [WLAN_RFKILL]: rfkill_set_wifi_bt_power: 1
+      [    5.844563] W : [File] : drivers/gpu/arm/bifrost/platform/rk/mali_kbase_config_rk.c; [Line] : 143; [Func] : kbase_platform_rk_init(); power-off-delay-ms not available.
+      [    5.908313] power_supply cw2015-battery: cw2015-battery: Found supply : bq25890-charger
+      [    5.908476] cw2015 6-0062: No monitored battery, some properties will be missing
+
+  >>> 解读提示：
+      charge_full / energy_full = 实际满充电荷量（单位 μAh 或 μWh）
+      charge_full_design / energy_full_design = 标称设计容量（若系统有读）
+      5000mAh = 5,000,000 μAh
+      当前功率 = voltage_now(V) × current_now(A)，20W 快充应接近 20
+      注意：charge_full 是实测满充电荷量，会因老化略低于标称容量
+           厂商标称容量需看 model_name 或 dmesg
+
+
+======================================================================
+【11】内存 + 存储 —— 已知基本正确（8G / 256G），仅复核
+======================================================================
+  $ free -h
+      总计         已用        空闲      共享    缓冲/缓存    可用
+      内存：       7.7Gi       896Mi       6.1Gi        63Mi       766Mi       6.7Gi
+      交换：          0B          0B          0B
+
+  $ cat /proc/meminfo | head -10
+      MemTotal:        8110252 kB
+      MemFree:         6407172 kB
+      MemAvailable:    7045816 kB
+      Buffers:           34276 kB
+      Cached:           692752 kB
+      SwapCached:            0 kB
+      Active:           133804 kB
+      Inactive:        1163712 kB
+      Active(anon):       1380 kB
+      Inactive(anon):   632288 kB
+
+  $ df -h
+      文件系统        容量  已用  可用 已用% 挂载点
+      /dev/root       227G   13G  205G    6% /
+      devtmpfs        3.9G  8.0K  3.9G    1% /dev
+      tmpfs           3.9G     0  3.9G    0% /dev/shm
+      tmpfs           792M  2.1M  790M    1% /run
+      tmpfs           5.0M  4.0K  5.0M    1% /run/lock
+      tmpfs           3.9G     0  3.9G    0% /sys/fs/cgroup
+      tmpfs           792M   16K  792M    1% /run/user/1000
+      tmpfs           792M     0  792M    0% /run/user/0
+
+  $ ls /dev/mmcblk* /dev/nvme* 2>/dev/null; cat /sys/class/block/mmcblk0/device/name 2>/dev/null; cat /sys/class/block/mmcblk0/device/csd 2>/dev/null; cat /sys/class/block/nvme0n1/device/model 2>/dev/null
+      /dev/mmcblk0
+      /dev/mmcblk0boot0
+      /dev/mmcblk0boot1
+      /dev/mmcblk0p1
+      /dev/mmcblk0p2
+      /dev/mmcblk0p3
+      /dev/mmcblk0p4
+      /dev/mmcblk0p5
+      /dev/mmcblk0p6
+      /dev/mmcblk0p7
+      /dev/mmcblk0rpmb
+      Origin
+      d0ffff329f5903ffffffffef96400000
+
+  >>> 解读提示：
+      内存 MemTotal 约 7.7 GiB = 8 GiB 标称 ✓（用户资料正确）
+      存储总容量约 227 GB = 256 GB 标称换算 ✓（用户资料正确）
+      此项无需核验，仅记录
+
+
+======================================================================
+【12】ESP32 小核 —— 核验 RISC-V 架构 + 4MB Flash + 串口连接
+======================================================================
+  $ ls /dev/ttyS* 2>/dev/null; ls /dev/ttyUSB* 2>/dev/null; ls /dev/ttyACM* 2>/dev/null
+      /dev/ttyS9
+
+  $ stty -F /dev/ttyS9 2>/dev/null; udevadm info -q property -n /dev/ttyS9 2>/dev/null | head -10
+      speed 1500000 baud; line = 15;
+      min = 1; time = 0;
+      -brkint -icrnl -imaxbel
+      -opost
+      -isig -icanon -iexten -echo
+      DEVPATH=/devices/platform/febc0000.serial/tty/ttyS9
+      DEVNAME=/dev/ttyS9
+      MAJOR=4
+      MINOR=73
+      SUBSYSTEM=tty
+      USEC_INITIALIZED=5236501
+      ID_MM_CANDIDATE=1
+      TAGS=:systemd:
+
+  $ python3 -c "import serial; s=serial.Serial('/dev/ttyS9', 115200, timeout=0.5); print('OK 端口可打开', s); s.close()" 2>&1 || echo "端口打开失败或 pyserial 未装"
+      Traceback (most recent call last):
+        File "<string>", line 1, in <module>
+      ModuleNotFoundError: No module named 'serial'
+      端口打开失败或 pyserial 未装
+
+  $ dmesg 2>/dev/null | grep -i -E "esp32|cp210|ch340|ftdi|ttyS9|rk805|serial" | head -10
+      [    1.568274] Kernel command line: storagemedia=emmc androidboot.storagemedia=emmc androidboot.mode=normal  androidboot.verifiedbootstate=orange androidboot.serialno=60071388492ba334  rw rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 root=PARTUUID=614e0000-0000
+      [    2.899313] rockchip-cpuinfo cpuinfo: Serial		: 60071388492ba334
+      [    3.190853] Serial: 8250/16550 driver, 10 ports, IRQ sharing disabled
+      [    3.191248] febc0000.serial: ttyS9 at MMIO 0xfebc0000 (irq = 99, base_baud = 1500000) is a 16550A
+      [    3.256309] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+      [    3.256321] usb usb1: SerialNumber: fc800000.usb
+      [    3.316984] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+      [    3.316996] usb usb2: SerialNumber: fc840000.usb
+      [    3.317759] usbcore: registered new interface driver usbserial_generic
+      [    3.317769] usbserial: USB Serial support registered for generic
+
+  >>> 解读提示：
+      ESP32-S3 是 RISC-V 架构，内置 4MB Flash ✓（用户资料正确）
+      连接走 /dev/ttyS9 内部 UART，非 USB 串口芯片 ✓
+      Flash 加密、Secure Boot、AES/SHA/RSA 硬件加速是 ESP32-S3 标配 ✓
+      注意：探测脚本无法直接读 ESP32 内部架构，只能通过串口确认连接
+           架构确认需查 ESP32 SDK 或参考官方文档
+
+
+======================================================================
+探测完成
+======================================================================
+日志已保存到：logs/探测_硬件规格_20260815.log
+
+请将日志文件内容复制给我，我来逐项核对厂商宣传资料与实测数据是否一致。
+======================================================================

@@ -23,6 +23,12 @@ OCR 后端：使用官方 text_recognition.TextRecognizer（依赖 ppocr_system 
   - 本地参考：唐诗宋词朗读器.py（界面风格、线程化播报、可中断播放）
 """
 
+import os
+# 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
+# 必须在 ALL import 之前设置（包括 text_recognition、pygame、cv2），
+# 否则 PaddleOCR 加载时就已触发 Mali GPU 硬件 DRI 驱动崩溃
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
 # !!! text_recognition 必须在所有其他库之前导入 !!!
 # 原因：ppocr_system 依赖 utils.operators，若先导入 cv2/pygame/camera_vision_system_v3，
 # 它们会将 utils 注册为非包模块，导致 ppocr_system 报 'utils' is not a package
@@ -33,11 +39,6 @@ try:
 except Exception as _e:
     _TEXT_RECOGNITION_AVAILABLE = False
     _TEXT_RECOGNITION_ERROR = _e
-
-import os
-# 强制 libGL 使用软件渲染，避免 rockchip 平台 GPU 驱动加载失败
-# 参考方案第 7 章 Rockchip 平台兼容性补丁
-os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
 import sys
 import time

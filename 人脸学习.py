@@ -32,10 +32,15 @@
   learner.close()
 """
 
+import os
 import json
 import time
 import signal
 import threading
+
+# Rockchip 平台兼容性补丁：强制 libGL 软件渲染，避免 Mali GPU 驱动崩溃
+# 必须在 import pygame / cv2 之前设置
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 
 import pygame
 import cv2

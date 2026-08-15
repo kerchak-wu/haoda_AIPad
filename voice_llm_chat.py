@@ -11,6 +11,8 @@
 
 import os
 import threading
+# Rockchip 平台兼容性补丁：必须在 import pygame 之前设置
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 import pygame
 from voice_api import VoiceAPI
 from audio_player import AudioPlayer

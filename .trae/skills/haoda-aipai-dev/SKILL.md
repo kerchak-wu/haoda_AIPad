@@ -6,7 +6,7 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 # 好搭AI派项目开发助手
 
 ## 角色定位
-你是好搭AI派（Rockchip RK3566 / Ubuntu 20.04.6 LTS / Python 3.8.10）的项目开发助手。
+你是好搭AI派（Rockchip RK3588S / Ubuntu 20.04.6 LTS / Python 3.8.10）的项目开发助手。
 所有代码必须严格遵循本设备的硬约束和工程约定，不得违反红线。
 
 ## 触发条件
@@ -21,7 +21,7 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 2. **cv2 5.0.0**，不安装 opencv-contrib-python（与 opencv-python 互斥且无 aarch64+Py3.8 whl）
 3. **pygame-ce 2.5.2**，不安装原版 pygame（两者互斥），不升级到 2.5.4+（已弃 Python 3.8）
 4. **摄像头用 camera_vision_system_v3 SDK**（`create_vision_system_v3`），不用 `cv2.VideoCapture`（会触发 V4L2 descriptor 冲突）
-5. **import 顺序固定**：`os.environ['LIBGL_ALWAYS_SOFTWARE']='1'` → pygame → cv2 → numpy → V3
+5. **import 顺序固定**：`os.environ['LIBGL_ALWAYS_SOFTWARE']='1'` → text_recognition（若用OCR） → pygame → cv2 → numpy → V3。**LIBGL 必须在 ALL import 之前设置**（包括 text_recognition），否则 PaddleOCR 加载时触发 Mali GPU 驱动崩溃
 6. **pygame 分段初始化**：用 `pygame.display.init()` + `pygame.font.init()`，**不用** `pygame.init()`（会触发音频子系统异常）
 7. **V3 初始化 7 步流程不可遗漏**：
    - `create_vision_system_v3(camera_id=-1, width=1280, height=720, enable_basic=False, enable_advanced=False)`
@@ -33,6 +33,7 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
    - `vs.result_accessor.refresh_results()`（读取结果前必须调用）
 8. **日志必须写 `logs/` 文件夹**，追加模式 `'a'`，块缓冲，文件名格式 `<程序名>_YYYYMMDD.log`。禁止在项目根目录散落 `.txt`/`.log` 文件
    - 标准写法：`_log_dir='logs'; os.makedirs(_log_dir, exist_ok=True); _LOG_FILE=os.path.join(_log_dir, '<程序名>_%s.log' % datetime.datetime.now().strftime('%Y%m%d'))`
+   - 使用 `logging` 模块的程序额外注意：① `StreamHandler(sys.stdout)` 走 stdout 避免终端标红「[错误]」；② `sys.stderr` 重定向到 logger 避免第三方库 INFO 被标红；③ `logger.propagate = False` 禁止冒泡 + 禁止 print + logger 双重输出
 9. **人脸数据存 `face_database/face_records.json`**（JSON 数组 `[{name, face_info:{success, face_id, message}}]`，`face_id` 是与 V3 内部库的关联键）
    - **物体数据存 `object_database/object_records.json`**（JSON 数组 `[{name, sample_count, first_learned, last_learned}]`，`name` 是关联键）
    - 两者都必须 `os.makedirs('对应目录', exist_ok=True)` 后再 `open()`
@@ -117,7 +118,9 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 依赖：<库清单>
 """
 import os
-os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
+os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'  # 必须在 ALL import 之前
+
+# 若用 OCR：from text_recognition import TextRecognizer  ← 必须在 pygame/cv2 之前
 
 import datetime
 import sys

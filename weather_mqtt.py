@@ -15,6 +15,8 @@ import random
 import threading
 import urllib.request
 import json
+# Rockchip 平台兼容性补丁：必须在 import pygame 之前设置
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 import pygame
 from datetime import datetime
 from paho.mqtt import client as mqtt_client

@@ -821,7 +821,7 @@ class FacialExpressionApp:
         self.screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
 
         # 副标题（居中，最大宽度 1400）
-        sub_text = 'RKNN 本地离线识别 · RK3566 NPU 加速  ·  已运行 %s' % self.fmt_duration()
+        sub_text = 'RKNN 本地离线识别 · RK3588S NPU 加速  ·  已运行 %s' % self.fmt_duration()
         sub, _ = clamp_text(self.font_sub, sub_text, 1400)
         self.screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, 92))
 

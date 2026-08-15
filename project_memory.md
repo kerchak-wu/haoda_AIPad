@@ -1,8 +1,10 @@
 ## Hard Constraints
+- SoC: **Rockchip RK3588S**（device-tree: rockchip,rk3588s-tablet-f12-v11），**NOT RK3566**。CPU = 4×Cortex-A76 + 4×Cortex-A55 大小核异构；GPU = Mali-G610 MP4；NPU = 6 TOPS @ INT8（3 核），支持 INT4/INT8/INT16/FP16。板载显示屏原生 = 8 寸 1200×1920 竖屏（DSI-1）
+- **Default UI resolution: 1920×1080 landscape windowed (non-fullscreen)**. Do NOT adapt to native 1200×1920 unless explicitly required by the user. Accept the black bars on top/bottom; do not spend effort eliminating them
 - Only the main branch should be kept; all other branches must be deleted
 - On rockchip platform, use `camera_vision_system_v3` SDK instead of `cv2.VideoCapture` for camera access to avoid V4L2 device descriptor conflicts with SDL2
 - All OpenCV (cv2) imports must come after pygame imports to prevent OpenGL initialization conflicts
-- Set environment variable `LIBGL_ALWAYS_SOFTWARE=1` to force software rendering and avoid rockchip GPU driver errors
+- Set environment variable `LIBGL_ALWAYS_SOFTWARE=1` to force software rendering and avoid rockchip GPU driver errors; **must be set before ALL imports** (including `text_recognition`/`pygame`/`cv2`), otherwise PaddleOCR triggers Mali GPU driver loading on import, causing `libGL error: failed to create dri screen` / `failed to load driver: rockchip`
 - Python version is locked to **3.8.10** (no other versions available on device). Any new dependency must support Python 3.8
 - cv2 version is **5.0.0** (not 4.x) — verify API compatibility when using newer OpenCV features; fallback to v4-style calls if error occurs
 - AudioPlayer (official lib) has NO pause/resume/stop/volume control; if playback control is needed, use pygame.mixer or pyaudio directly instead
@@ -39,3 +41,5 @@
 - Deleting entire `face_database/` or `object_database/` is a NON-DESTRUCTIVE reset — V3 recreates directory on first write, only data loss
 - `object_data/object_db.json` is a historical leftover, not referenced by any code/docs; safe to delete
 - If tier-2 JSON is lost but V3 tier-1 DB intact, reconstruct mapping by appending new rows with current user name when V3 returns existing `face_id`/`class_name`
+- **LIBGL_ALWAYS_SOFTWARE import order trap**: `text_recognition` (PaddleOCR) must be imported before `pygame`/`cv2` (utils package conflict), but `LIBGL_ALWAYS_SOFTWARE=1` must be set before `text_recognition` — otherwise PaddleOCR import triggers Mali GPU driver loading. Correct order: `os.environ` → `text_recognition` → `pygame` → `cv2`. Found in 智慧阅读角.py, 文字识别播报器.py, 文字识别视频播放器.py, 文字识别播视频qoder.py (all fixed 2026-08-15)
+- **Terminal [错误] red tag issue**: 好搭AI派 terminal marks ALL stderr output as red「[错误]」, even normal INFO from third-party libs (color_block_detector, PIL, ESP32, V3 SDK). Fix for programs using `logging`: ① `StreamHandler(sys.stdout)` instead of default stderr; ② redirect `sys.stderr` to a logger wrapper; ③ `logger.propagate = False` to prevent root logger bubble; ④ eliminate all `print(msg)` + `logger.info(msg)` dual output patterns

@@ -11,6 +11,9 @@
   - 舵机接扩展板 p1 口（GPIO_IO_01）
 """
 
+import os
+# Rockchip 平台兼容性补丁：必须在 import pygame 之前设置
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 from ESP32 import *
 import pygame
 import math

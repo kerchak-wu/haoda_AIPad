@@ -2,7 +2,7 @@
 
 > 文档版本：v1.1  
 > 生成日期：2026-08-14  
-> 适用范围：好搭AI派设备（Rockchip RK3566 / Ubuntu 20.04.6 LTS / Python 3.8.10）上所有新项目开发  
+> 适用范围：好搭AI派设备（Rockchip RK3588S / Ubuntu 20.04.6 LTS / Python 3.8.10）上所有新项目开发  
 > 配套文档（均在当前文件夹内）：project_memory.md（所有硬约束与经验事实的单一信源）、系统环境与非视觉官方库探测报告_v1.md、视觉系统摄像头调用参考方案.md、camera_vision_system_v3_API分析报告.md、好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md
 
 ---
@@ -20,7 +20,7 @@
 | 1 | project_memory.md | **项目级铁律总表**，所有硬约束、工程约定、经验事实的单一信源 | Hard Constraints 全部（Python 3.8.10 锁版、cv2 5.0.0 锁版、pygame-ce 2.5.2 锁版、**人脸/物体数据与 V3 数据库同目录、2 层存储模型、单删/全删流程**）；Engineering Conventions 全部（**V3 7 步初始化、日志必须 logs/、摄像头探测顺序 40→41→42、ESP32 串口 /dev/ttyS9** 等）；Lessons Learned 全部（删 face_database/object_database 无破坏性、`object_data/` 是历史遗留、Tier-2 JSON 丢失补录策略 等） |
 | 2 | 系统环境与非视觉官方库探测报告_v1.md | 系统环境全景 + 7 个非视觉官方库完整反射枚举 API + 三项关键版本决策 + 15 条风险表 | 第 2 章 Python/库版本约束；**2.5 节三项关键版本决策（Python 不升 / pygame-ce 不换 / cv2 不装 contrib）**；第 3-8 章 ESP32 / Line_Sensor / voice_api / audio_recorder / audio_player / text_recognition 的完整方法签名；第 9 章 15 条风险表（其中 13/14/15 为三条版本红线高优警告） |
 | 3 | **我的好搭AI派说明.md** | **资源清单信源**（字体文件和图标文件的文件名唯一信源；字体文件附带设备绝对路径，图标文件位于设备上与运行程序同目录的 `icons/` 文件夹内）；**图片文件名不在此文件中** | 「已上传好搭AI派字体文件」章节（取文件名 + 设备绝对路径，UI 加载字体时用）；「已上传好搭AI派图标文件（icons 文件夹）」章节（取文件名，UI 加载图标时用 `icons/文件名.png` 相对路径）；**图片文件**：不在此文件中，只能默认 `images/1.jpg` 或在项目开发需求中提供或询问用户，图片位于设备上与运行程序同目录的 `images/` 文件夹内；好搭AI派设备上的目录结构与本资料文件夹无关 |
-| 4 | 视觉系统摄像头调用参考方案.md | 摄像头三种调用模式总览 + Rockchip 平台兼容性补丁 + V3 全托管实测约束 + 剩余盲点记录 | 第 2 章三大模式总览（决定项目采用哪种摄像头模式）；第 5 章黄金法则（按需求选择模式的决策树）；第 7 章兼容性补丁（LIBGL_ALWAYS_SOFTWARE、pygame 分段 init、cv2 必须在 pygame 之后 import）；第 16 章 V3 全托管模式的 5 条实测约束；第 17 章剩余未探测盲点（项目设计时尽量避开） |
+| 4 | 视觉系统摄像头调用参考方案.md | 摄像头三种调用模式总览 + Rockchip 平台兼容性补丁 + V3 全托管实测约束 + 剩余盲点记录 | 第 2 章三大模式总览（决定项目采用哪种摄像头模式）；第 5 章黄金法则（按需求选择模式的决策树）；第 7 章兼容性补丁（**LIBGL_ALWAYS_SOFTWARE 必须在 ALL import 之前设置（含 text_recognition）、pygame 分段 init、cv2 必须在 pygame 之后 import**）；第 16 章 V3 全托管模式的 5 条实测约束；第 17 章剩余未探测盲点（项目设计时尽量避开） |
 | 5 | camera_vision_system_v3_API分析报告.md | V3 视觉系统完整 API + 14 类算法返回结构 + 已知易错点 | 第 2 章实例成员（摄像头生命周期、算法开关、人脸管理、自定义物体管理）；第 3 章 DetectionConfig + CameraConfig 完整默认值（含 `face_db_path='face_database'`、`object_db_path='object_database'`、`backup_camera_ids=[40,41,42,43]`）；第 5 章 14 类算法结果访问器的**字段级返回结构**；第 8 章已知易错点 + 8.8 节系统实测补漏（engagement/emotion 优先级、callback 参数、已知 V3 bug） |
 | 6 | 好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md | 65 个官方范例代码集 + 补充说明（原文件已删除的关键差异提醒原文、15 个问题复核、6 项最新探测发现、各范例适用性评估表） | 范例代码按需查阅对应章节；补充说明 1.4 节（原文件已删的 8 月 14 日补充更新 + 关键差异提醒原文，含 USB 摄像头 40→41→42、LIBGL_ALWAYS_SOFTWARE、GPIO_BUTTON=0 忽略、ESP32 隐藏能力、dt-apriltags 已装）；补充说明第四章（49 个范例按 P0/P1/P2/P3 分优先级的适用性评估表，推荐直接复用的标★） |
 
@@ -201,9 +201,10 @@
   - 检测展示类（按一下识别一次）：5-10 FPS 可接受
   - 纯展示类（无摄像头）：30 FPS UI 刷新率
 - **响应时延上限**：语音播报延迟？从识别到硬件动作的延迟？
-- **资源预算**：允许同时加载几个 V3 算法？几个 MediaPipe 管线？（RK3566 8 核 7.7GB 内存余量很大，但多算法叠加会降低帧率）
+- **资源预算**：允许同时加载几个 V3 算法？几个 MediaPipe 管线？（RK3588S 8 核（4×A76 + 4×A55）7.7GB 内存余量很大，但多算法叠加会降低帧率）
 - **日志要求**：
   - 默认：所有程序日志按标准模式输出到 `logs/<程序名>_YYYYMMDD.log`（追加模式 + 块缓冲 + stdout 分路）
+  - 使用 `logging` 模块的程序需注意三点好搭AI派终端适配：① `StreamHandler(sys.stdout)` 走 stdout 避免终端标红「[错误]」；② `sys.stderr` 重定向到 logger 避免第三方库 INFO 被标红；③ `logger.propagate = False` 禁止冒泡 + 禁止 print + logger 双重输出
   - 如需更详细的调试日志 / 关闭日志 / 改为 daily rotation，请明确说明
 - **异常处理策略**：摄像头打开失败 / API 超时 / 传感器无响应 / 网络断连 —— 是重试 N 次后退出？还是 UI 提示用户后降级运行？
 

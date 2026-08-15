@@ -20,7 +20,15 @@
 - videos/1.mp4  videos/2.mp4  videos/3.mp4 (图书视频)
 """
 
-# ====== 注意：text_recognition 必须最先导入，否则OCR会报错 ======
+import os
+# Rockchip 平台兼容性补丁（参照《视觉系统摄像头调用参考方案》第7章）
+# 必须在 ALL import 之前设置（包括 text_recognition、pygame、cv2），
+# 强制 libGL 使用软件渲染，避免 Mali GPU 硬件 DRI 驱动崩溃报错：
+#   libGL error: failed to create dri screen
+#   libGL error: failed to load driver: rockchip
+os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+
+# ====== 注意：text_recognition 导入顺序放在其他第三方库之前，否则OCR会报错 ======
 # try/except 容错：导入失败时记录错误，程序仍可启动（智能导读功能不可用）
 try:
     from text_recognition import TextRecognizer as _TextRecognizer
@@ -30,11 +38,7 @@ except Exception as _e:
     _TEXT_RECOGNITION_AVAILABLE = False
     _TEXT_RECOGNITION_ERROR = _e
 
-import os
-# Rockchip 平台兼容性补丁（参照《视觉系统摄像头调用参考方案》第7章）
-# 必须在 import pygame 之前设置，强制 libGL 软件渲染，避免 Mali GPU 驱动崩溃
-os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
-
+import sys
 import pygame
 import cv2
 import time
@@ -234,6 +238,13 @@ def setup_logging():
     - 日志目录 logs/，文件名格式 智慧阅读角_YYYYMMDD.log
     - 追加模式（'a'）而非覆盖，同一天多次运行累积保留
     - 每次启动写入分隔标记，便于区分多次运行
+
+    另外处理好搭AI派终端的两个日志显示问题：
+    (a) 终端把 stderr 流全标成「[错误]」→ 把 stderr 重定向到 logger.warning，
+        避免第三方库（color_block_detector/PIL/ESP32/V3 SDK）往 stderr 写的
+        正常 INFO 信息被错标成红色错误。
+    (b) 第三方库/本程序 logger 与 print 混用导致日志重复 → logger.propagate=False
+        阻止向上冒泡到 root logger；本程序一律用 logger，不再额外 print。
     """
     os.makedirs('logs', exist_ok=True)
     log_filename = os.path.join(
@@ -241,6 +252,7 @@ def setup_logging():
     logger = logging.getLogger('SmartReading')
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
+    logger.propagate = False  # 关键：禁止冒泡到 root logger，避免重复输出
     fmt = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
     # 文件 handler 用追加模式，DEBUG 级别全量记录
@@ -248,10 +260,45 @@ def setup_logging():
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
     logger.addHandler(fh)
-    ch = logging.StreamHandler()
+    # 控制台 handler：INFO 级别，走 stdout（而非默认 stderr），避免终端打「[错误]」标
+    ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     ch.setLevel(logging.INFO)
     logger.addHandler(ch)
+
+    # --- stderr → logger 重定向 ---
+    # 第三方库（color_block_detector / PIL / ESP32 / voice_api / V3 SDK 内部）
+    # 喜欢往 stderr 写普通提示，终端会统一前缀「[错误]」误导用户。
+    # 这里把 sys.stderr 替换成写往 logger.warning 的 Writer，既保留信息又消除红字。
+    class _StderrToLogger(object):
+        def __init__(self, lg):
+            self._lg = lg
+            self._buf = ''
+
+        def write(self, s):
+            self._buf += s
+            while '\n' in self._buf:
+                line, self._buf = self._buf.split('\n', 1)
+                line = line.rstrip('\r')
+                if line:
+                    # 过滤常见已知噪音：纯空行、color_block_detector 的 INFO 行
+                    if line.startswith('INFO:color_block_detector') or \
+                       line.startswith('I:SmartReading'):
+                        self._lg.info(line)
+                    elif line.startswith('[错误]'):
+                        # 终端前置标签已在内容里，降级成 warning 不要重复吓用户
+                        self._lg.warning(line)
+                    else:
+                        self._lg.warning(line)
+
+        def flush(self):
+            if self._buf:
+                self.write('\n')
+    try:
+        sys.stderr = _StderrToLogger(logger)
+    except Exception:
+        pass
+
     logger.info('=' * 60)
     logger.info('======== %s 运行开始 ========', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     logger.info('智慧阅读角程序启动，日志文件: %s', log_filename)
@@ -569,7 +616,6 @@ class SmartReadingApp:
     def init_hardware(self):
         if not _ESP32_AVAILABLE:
             msg = '警告：ESP32 模块导入失败（%s），硬件功能不可用' % _ESP32_ERROR
-            print(msg)
             if self.logger:
                 self.logger.warning(msg)
             return False
@@ -577,13 +623,11 @@ class SmartReadingApp:
             self.board = ESP32()
         except Exception as e:
             msg = '警告：ESP32 实例化异常（%s），硬件功能不可用' % e
-            print(msg)
             if self.logger:
                 self.logger.warning(msg)
             return False
         if not self.board.start():
             msg = '警告：扩展板连接异常，硬件功能不可用'
-            print(msg)
             if self.logger:
                 self.logger.warning(msg)
             return False
@@ -595,10 +639,8 @@ class SmartReadingApp:
         # 启动 PIR 后台轮询线程（主线程不再直接访问串口读 PIR）
         self._start_pir_thread()
         self._board_connected = True  # 标记扩展板连接成功，后续 cleanup 才操作硬件
-        msg = '扩展板连接成功，RGB灯带已启动 (11灯珠, pin=2)'
-        print(msg)
         if self.logger:
-            self.logger.info(msg)
+            self.logger.info('扩展板连接成功，RGB灯带已启动 (11灯珠, pin=2)')
         return True
 
     def init_vision_system(self):
@@ -616,10 +658,9 @@ class SmartReadingApp:
             )
             if _TEXT_RECOGNITION_AVAILABLE:
                 self.ocr = _TextRecognizer()
-            msg = '视觉系统初始化成功，OCR=%s' % (_TEXT_RECOGNITION_AVAILABLE and '可用' or '不可用')
-            print(msg)
             if self.logger:
-                self.logger.info(msg)
+                self.logger.info('视觉系统初始化成功，OCR=%s',
+                                 _TEXT_RECOGNITION_AVAILABLE and '可用' or '不可用')
         except Exception as e:
             if self.logger:
                 self.logger.error('视觉系统初始化失败: %s', e)
@@ -642,10 +683,8 @@ class SmartReadingApp:
             self.player = AudioPlayer()
             self.recorder = AudioRecorder(sample_rate=16000, channels=1)
             self.recorder.set_output_dir('recordings')
-            msg = '语音AI初始化成功'
-            print(msg)
             if self.logger:
-                self.logger.info(msg)
+                self.logger.info('语音AI初始化成功')
         except Exception as e:
             if self.logger:
                 self.logger.error('语音AI初始化失败: %s', e)
@@ -666,17 +705,13 @@ class SmartReadingApp:
                     self.camera_ok = False
                     return
                 self.camera_ok = True
-                msg = '摄像头初始化成功'
-                print(msg)
                 if self.logger:
-                    self.logger.info(msg)
+                    self.logger.info('摄像头初始化成功')
                 self._start_camera_thread()
             else:
                 if self.running:
-                    msg = '警告：摄像头打开失败'
-                    print(msg)
                     if self.logger:
-                        self.logger.warning(msg)
+                        self.logger.warning('警告：摄像头打开失败')
         except Exception as e:
             if self.logger and self.running:
                 self.logger.error('摄像头初始化异常: %s', e)
@@ -761,7 +796,8 @@ class SmartReadingApp:
     # ====== 语音操作（异步线程）======
     def speak_async(self, text, light_mode='speaking', restore_mode=None):
         if not self.voice_api:
-            print('语音AI未初始化，无法播报')
+            if self.logger:
+                self.logger.warning('语音AI未初始化，无法播报')
             return
 
         def worker():
@@ -779,7 +815,6 @@ class SmartReadingApp:
             except Exception as e:
                 if self.logger:
                     self.logger.error('语音合成失败: %s', e)
-                print(f'语音合成失败: {e}')
             finally:
                 with self._lock:
                     self.is_speaking = False
@@ -1451,7 +1486,6 @@ class SmartReadingApp:
         if not os.path.exists(video_path):
             if self.logger:
                 self.logger.warning('视频文件不存在: %s', video_path)
-            print(f'视频文件不存在: {video_path}')
             return
         # 先确保之前的视频已停止
         self._stop_video_internal(blocking=False)
@@ -1968,10 +2002,8 @@ class SmartReadingApp:
 
     # ====== 清理 ======
     def cleanup(self):
-        msg = '正在清理资源...'
-        print(msg)
         if self.logger:
-            self.logger.info(msg)
+            self.logger.info('正在清理资源...')
 
         # ---- 第一步：先标记 self.running=False，通知所有后台线程主动退出 ----
         # （主循环正常退出时 running 已经是 False，但防御式置位不影响）
@@ -2052,10 +2084,8 @@ class SmartReadingApp:
         except Exception:
             pass
         pygame.quit()
-        msg = '资源清理完成'
-        print(msg)
         if self.logger:
-            self.logger.info(msg)
+            self.logger.info('资源清理完成')
             self.logger.info('=' * 60)
             self.logger.info('智慧阅读角程序正常结束')
             self.logger.info('=' * 60)
