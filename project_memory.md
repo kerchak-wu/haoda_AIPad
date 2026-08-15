@@ -14,6 +14,7 @@
 - Face & object data paths are **locked to V3 SDK database directories**: application-layer JSON mapping files must live inside the same folder as V3 SDK binary feature databases, never at project root. Standard layout: `face_database/face_records.json` (side-by-side with V3 face feature files) and `object_database/object_records.json` (side-by-side with V3 object feature files). `object_data/` is a historical leftover — never reference it.
 
 ## Engineering Conventions
+- **所有新建/生成的 `.md` 文件必须使用 UTF-8 no BOM 编码**，禁止使用带 BOM 的 UTF-8 或其他编码
 - Pygame initialization should only initialize required modules (display and font) using `pygame.display.init()` and `pygame.font.init()` instead of `pygame.init()` to avoid audio subsystem exceptions
 - Camera initialization must occur after pygame display mode is set to prevent SDL2 from resetting V4L2 device descriptors
 - Image processing for Baidu API should use 160x120 resolution, JPEG quality 60, and 5-second detection intervals to minimize CPU usage
