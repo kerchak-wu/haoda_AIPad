@@ -259,6 +259,7 @@
                 let html = marked.parse(markdown, { renderer });
                 markdownEl.innerHTML = html;
 
+                adjustForWeb();
                 enhanceRenderedContent();
 
                 // ---------- 绑定下载事件 ----------
@@ -271,6 +272,54 @@
                         downloadFile(url, filename);
                     });
                 });
+            }
+
+            // ---------- 网页端裁剪（仓库 README 内容保持不变，仅调整网页展示） ----------
+            // 1) 移除顶部「文档口径状态 / 权威顺序 / 两份基线」三行说明块
+            // 2)「项目资料」改为平铺列表，仅保留《好搭AI派学习手册》《好搭AI派范例代码》
+            function adjustForWeb() {
+                // 1) 顶部说明块
+                markdownEl.querySelectorAll('blockquote').forEach(function(bq) {
+                    const t = bq.textContent || '';
+                    if (t.indexOf('文档口径状态') !== -1 && t.indexOf('权威顺序') !== -1) {
+                        bq.remove();
+                    }
+                });
+
+                // 2)「项目资料」平铺列表
+                let projHeading = null;
+                markdownEl.querySelectorAll('h2').forEach(function(h) {
+                    if (h.textContent.trim() === '项目资料') projHeading = h;
+                });
+                if (!projHeading) return;
+
+                // 删除「项目资料」与下一个 h2 之间的原有内容
+                let node = projHeading.nextElementSibling;
+                while (node && node.tagName !== 'H2') {
+                    const next = node.nextElementSibling;
+                    node.remove();
+                    node = next;
+                }
+
+                const items = [
+                    { href: '好搭AI派学习手册.md', text: '好搭AI派学习手册' },
+                    { href: '好搭AI派范例代码.md', text: '好搭AI派范例代码' }
+                ];
+                const p = document.createElement('p');
+                items.forEach(function(it, i) {
+                    const rawUrl =
+                        `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${it.href}`;
+                    const fileName = it.href.split('/').pop();
+                    const a = document.createElement('a');
+                    a.href = rawUrl;
+                    a.setAttribute('data-raw-url', rawUrl);
+                    a.setAttribute('data-filename', fileName);
+                    a.target = '_blank';
+                    a.textContent = '📄 ' + it.text;
+                    p.appendChild(a);
+                    if (i < items.length - 1) p.appendChild(document.createTextNode('\n'));
+                });
+                projHeading.parentNode.insertBefore(p, projHeading.nextSibling);
             }
 
             function enhanceRenderedContent() {
