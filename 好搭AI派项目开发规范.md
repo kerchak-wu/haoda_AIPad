@@ -3,7 +3,8 @@
 > 文档版本：v1.1  
 > 生成日期：2026-08-14  
 > 适用范围：好搭AI派设备（Rockchip RK3588S / Ubuntu 20.04.6 LTS / Python 3.8.10）上所有新项目开发  
-> 配套文档（均在当前文件夹内）：project_memory.md（所有硬约束与经验事实的单一信源）、系统环境与非视觉官方库探测报告.md、视觉系统摄像头调用参考方案.md、camera_vision_system_v3_API分析报告.md、好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md
+> 配套文档（均在当前文件夹内）：project_memory.md（硬约束与经验事实的**默认约定集 + 索引**，非唯一信源）、系统环境与非视觉官方库探测报告.md、视觉系统摄像头调用参考方案.md、camera_vision_system_v3_API分析报告.md、好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md  
+> **分工（2026-10-09）**：本规范负责**流程与参考索引**（读哪些文件 / 要哪些需求信息 / 按什么流程启动）；**技术口径以《好搭AI派项目开发指南.md》为准**。两者重叠处（7 步流程、8 类信息清单、骨架选型）以**本规范为唯一信源**，指南只做索引引用。
 
 ---
 
@@ -17,12 +18,12 @@
 
 | # | 文件 | 作用 | 必看章节 / 内容 |
 |---|---|---|---|
-| 1 | project_memory.md | **项目级铁律总表**，所有硬约束、工程约定、经验事实的单一信源 | Hard Constraints 全部（Python 3.8.10 锁版、cv2 5.0.0 锁版、pygame-ce 2.5.2 锁版、**人脸/物体数据与 V3 数据库同目录、2 层存储模型、单删/全删流程**）；Engineering Conventions 全部（**V3 7 步初始化、日志必须 logs/、摄像头探测顺序 40→41→42、ESP32 串口 /dev/ttyS9** 等）；Lessons Learned 全部（删 face_database/object_database 无破坏性、`object_data/` 是历史遗留、Tier-2 JSON 丢失补录策略 等） |
-| 2 | 系统环境与非视觉官方库探测报告.md | 系统环境全景 + 7 个非视觉官方库完整反射枚举 API + 三项关键版本决策 + 15 条风险表 | 第 2 章 Python/库版本约束；**2.5 节三项关键版本决策（Python 不升 / pygame-ce 不换 / cv2 不装 contrib）**；第 3-8 章 ESP32 / Line_Sensor / voice_api / audio_recorder / audio_player / text_recognition 的完整方法签名；第 9 章 15 条风险表（其中 13/14/15 为三条版本红线高优警告） |
+| 1 | project_memory.md | **项目级铁律总表**，所有硬约束、工程约定、经验事实的**默认约定集 + 索引**（非唯一信源） | Hard Constraints 全部（Python 3.8.10 锁版、cv2 5.0.0 锁版、pygame-ce 2.5.2 锁版、**人脸/物体数据与 V3 数据库同目录、2 层存储模型、单删/全删流程**）；Engineering Conventions 全部（**V3 7 步初始化、日志必须 logs/、摄像头探测顺序 40→41→42、ESP32 串口双路径（/dev/ttyS9 与 /dev/ttyCH341USB0/1，代码一律 board.start() 自动探测、不硬编码）** 等）；Lessons Learned 全部（删 face_database/object_database 无破坏性、`object_data/` 是历史遗留、Tier-2 JSON 丢失补录策略 等） |
+| 2 | 系统环境与非视觉官方库探测报告.md | 系统环境全景 + 7 个非视觉官方库完整反射枚举 API + 三项关键版本决策 + 15 条风险表 | 第 2 章 Python/库版本约束；**2.5 节三项关键版本决策（Python 锁 3.8.10 不升 / pygame-ce 固定 2.5.2 不换 / cv2 不安装·卸载·替换现有发行包，现状为 `opencv-contrib-python 5.0.0.93`）**；第 3-8 章 ESP32 / Line_Sensor / voice_api / audio_recorder / audio_player / text_recognition 的完整方法签名；第 9 章 15 条风险表（其中 13/14/15 为三条版本红线高优警告） |
 | 3 | **我的好搭AI派说明.md** | **资源清单信源**（字体文件和图标文件的文件名唯一信源；字体文件附带设备绝对路径，图标文件位于设备上与运行程序同目录的 `icons/` 文件夹内）；**图片文件名不在此文件中** | 「已上传好搭AI派字体文件」章节（取文件名 + 设备绝对路径，UI 加载字体时用）；「已上传好搭AI派图标文件（icons 文件夹）」章节（取文件名，UI 加载图标时用 `icons/文件名.png` 相对路径）；**图片文件**：不在此文件中，只能默认 `images/1.jpg` 或在项目开发需求中提供或询问用户，图片位于设备上与运行程序同目录的 `images/` 文件夹内；好搭AI派设备上的目录结构与本资料文件夹无关 |
 | 4 | 视觉系统摄像头调用参考方案.md | 摄像头三种调用模式总览 + Rockchip 平台兼容性补丁 + V3 全托管实测约束 + 剩余盲点记录 | 第 2 章三大模式总览（决定项目采用哪种摄像头模式）；第 5 章黄金法则（按需求选择模式的决策树）；第 7 章兼容性补丁（**LIBGL_ALWAYS_SOFTWARE 必须在 ALL import 之前设置（含 text_recognition）、pygame 分段 init、cv2 必须在 pygame 之后 import**）；第 16 章 V3 全托管模式的 5 条实测约束；第 17 章剩余未探测盲点（项目设计时尽量避开） |
-| 5 | camera_vision_system_v3_API分析报告.md | V3 视觉系统完整 API + 14 类算法返回结构 + 已知易错点 | 第 2 章实例成员（摄像头生命周期、算法开关、人脸管理、自定义物体管理）；第 3 章 DetectionConfig + CameraConfig 完整默认值（含 `face_db_path='face_database'`、`object_db_path='object_database'`、`backup_camera_ids=[40,41,42,43]`）；第 5 章 14 类算法结果访问器的**字段级返回结构**；第 8 章已知易错点 + 8.8 节系统实测补漏（engagement/emotion 优先级、callback 参数、已知 V3 bug） |
-| 6 | 好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md | 65 个官方范例代码集 + 补充说明（原文件已删除的关键差异提醒原文、15 个问题复核、6 项最新探测发现、各范例适用性评估表） | 范例代码按需查阅对应章节；补充说明 1.4 节（原文件已删的 8 月 14 日补充更新 + 关键差异提醒原文，含 USB 摄像头 40→41→42、LIBGL_ALWAYS_SOFTWARE、GPIO_BUTTON=0 忽略、ESP32 隐藏能力、dt-apriltags 已装）；补充说明第四章（AI 视觉算法 21 行适用性评估表，无 P0-P3 分级） |
+| 5 | camera_vision_system_v3_API分析报告.md | V3 视觉系统完整 API + 13 类算法返回结构 + 已知易错点 | 第 2 章实例成员（摄像头生命周期、算法开关、人脸管理、自定义物体管理）；第 3 章 DetectionConfig + CameraConfig 完整默认值（含 `face_db_path='face_database'`、`object_db_path='object_database'`、`backup_camera_ids=[40,41,42,43]`）；第 5 章 13 类算法结果访问器的**字段级返回结构**（结果 dict 含 `timestamp` 共 14 个 key）；第 8 章已知易错点 + 8.8 节系统实测补漏（engagement/emotion 优先级、callback 参数、已知 V3 bug） |
+| 6 | 好搭AI派范例代码.md + 好搭AI派范例代码补充说明.md | 65 个官方范例代码集 + 补充说明（原文件已删除的关键差异提醒原文、15 个问题复核、6 项最新探测发现、各范例适用性评估表） | 范例代码按需查阅对应章节；补充说明 1.4 节（原文件已删的 8 月 14 日补充更新 + 关键差异提醒原文，含 USB 摄像头 40→41→42、LIBGL_ALWAYS_SOFTWARE、无板载按键（GPIO_BUTTON / GPIO_IO_00 代码一律删除）、ESP32 隐藏能力、dt-apriltags 已装）；补充说明第四章（AI 视觉算法 21 行适用性评估表，无 P0-P3 分级） |
 
 ---
 
@@ -37,7 +38,7 @@
 | 人脸学习（人脸录入 + 姓名标签管理） | 人脸学习.py — FaceLearner 类封装完整 2 层存储 | 人脸学习项目说明文档.md | 范例 5.AI视觉算法 08-09.人脸学习 |
 | 人脸识别 + 硬件联动（灯带灯效） | 人脸识别灯效.py — V3 全托管模式 + face_id → `face_database/face_records.json` 映射姓名 | 人脸识别灯效项目说明文档.md | 范例 5.AI视觉算法 10.人脸识别 |
 | 人脸表情识别（本地 V3，走 NPU 加速） | 人脸表情识别器（自带算法）.py — 注意 expression 8 分类优先于 engagement | 人脸表情识别器项目说明文档.md | — |
-| 人脸表情识别（云端百度云 API） | 人脸表情识别（云算法）.py — 160×120 帧 / JPEG 质量 60 / 5 秒节流约定 | 人脸表情识别（云算法）项目说明文档.md | — |
+| 人脸表情识别（云端百度云 API） | 人脸表情识别（云算法）.py — JPEG 质量 85 / 检测间隔 1.5 s（旧「160×120 / JPEG 60 / 5 秒」口径已作废） | 人脸表情识别（云算法）项目说明文档.md | — |
 | 手势识别 + RGB 灯带 | 手势控制RGB灯带.py — MediaPipe Hands + ESP32 ws2812Write | 手势控制RGB灯带项目说明文档.md | 范例 2.扩展模块使用 4.RGB灯 |
 | 人体姿态（MediaPipe Pose） | 人体姿态识别器（MediaPipe）.py — 纯 MediaPipe，不依赖 V3 | 人体姿态识别器（MediaPipe）项目说明文档.md | — |
 | 姿态检测（V3 自带，YOLOv8-Pose） | 姿态检测（自带算法）.py — 17 个关键点返回结构 | 姿态检测（自带算法）项目说明文档.md | — |
@@ -53,13 +54,13 @@
 |---|---|---|
 | 风扇 / 电机控制（继电器数字 IO） | fan_control.py | 风扇控制项目说明文档.md |
 | WS2812 RGB 灯带 + 10 种预设灯效 | 手势控制RGB灯带.py — wheel() + 10 种灯效函数封装 | 手势控制RGB灯带项目说明文档.md |
-| ESP32 传感器全库（DHT11 / DS18B20 / 超声波 / BMP280 / 数字 IO / ADC / I²C / UART） | 系统环境与非视觉官方库探测报告.md 第 3 章（ESP32 50+ 方法完整签名 + 8 个异步 Callback API 优先级） | — |
+| ESP32 传感器全库（DHT11 / DS18B20 / 超声波 / BMP280 / 数字 IO / ADC / I²C / UART） | 系统环境与非视觉官方库探测报告.md 第 3 章（ESP32 56 个方法完整签名 + 8 个异步 Callback API 优先级） | — |
 
 #### C. 语音 AI 类项目参考代码
 
 | 功能需求 | 项目代码 | 配套项目说明文档 |
 |---|---|---|
-| 语音 LLM 对话（ASR + LLM + TTS 完整链路） | voice_llm_chat.py — AudioRecorder（16k float32，与 VoiceAPI 规格精准匹配） + VoiceAPI.voice_recognition() + llm_chat_znbw_2025() + tts_synthesize() + AudioPlayer.play() | 语音大模型对话项目说明文档.md |
+| 语音 LLM 对话（ASR + LLM + TTS 完整链路） | voice_llm_chat.py — AudioRecorder（16k float32，与 VoiceAPI 规格精准匹配） + VoiceAPI.voice_recognition() + llm_chat_znbw_2025() + tts_synthesize() + AudioPlayer（官方库无 play/pause/stop/调音量，播放控制改用 `pygame.mixer`） | 语音大模型对话项目说明文档.md |
 | TTS 朗读（唐诗宋词库） + 播放控制 | 唐诗宋词朗读器.py — VoiceAPI TTS + AudioPlayer（⚠️ 官方 AudioPlayer 无 pause/resume/stop/音量控制，如需控制改用 pygame.mixer） | 唐诗宋词朗读器项目说明文档.md |
 | 本地音乐播放器 + 完整播放控制 | music_player.py — pygame.mixer（具备完整 play/pause/stop/进度控制） | 音乐播放器项目说明文档.md |
 
@@ -79,7 +80,7 @@
 |---|---|---|
 | 清空人脸数据库（彻底重置，破坏 tier-1 + tier-2） | 清空人脸数据库.py — 严格按 6 步顺序：清库 API → 删 JSON → rmtree(`face_database/`) → **必须重启 Python 进程**后再学习 |
 | 清空物体数据库（彻底重置，破坏 tier-1 + tier-2） | 清空物体数据库.py — 严格按 7 步顺序：逐个删类 → 删 JSON → rmtree(`object_database/`) → **必须重启 Python 进程**后再学习 |
-| 环境探测脚本集（7 份脚本 + 3 份干净日志） | 探测工具/ 目录 — 验证环境/库/算法状态时复跑对比基准日志 |
+| 环境探测脚本集（9 份脚本 + 4 份日志，含「待定项核对」程序） | 探测工具/ 目录 — 验证环境/库/算法状态时复跑对比基准日志 |
 
 #### F. 资源说明（**好搭AI派设备上的目录与本资料文件夹无关；字体/图标文件名以『我的好搭AI派说明.md』各章节为准；图片文件名不在说明文件中**）
 
@@ -242,11 +243,11 @@ Step 2  读 视觉系统摄像头调用参考方案.md
 Step 3  读 camera_vision_system_v3_API分析报告.md
         → 第 2 章（实例成员，摄像头生命周期与算法开关）
         → 第 3 章（DetectionConfig 默认值：face_db_path / object_db_path / backup_camera_ids）
-        → 第 5 章（14 类算法的结果访问器，选定用到的子集，确认每个字段的返回结构）
+        → 第 5 章（13 类算法的结果访问器，选定用到的子集，确认每个字段的返回结构；结果 dict 含 `timestamp` 共 14 个 key）
         → 第 8 章（已知易错点 + 8.8 节系统实测补漏，写代码前必看）
 
 Step 4  读 系统环境与非视觉官方库探测报告.md
-        → 第 2.5 节（三项版本决策：Python 不升 / pygame-ce 不换 / cv2 不装 contrib）
+        → 第 2.5 节（三项版本决策：Python 锁 3.8.10 不升 / pygame-ce 固定 2.5.2 不换 / cv2 不安装·卸载·替换现有发行包）
         → 涉及的非视觉官方库章节（ESP32 / Line_Sensor / voice_api / audio_recorder / audio_player / text_recognition），确认方法签名
         → 第 9 章 15 条风险表（特别是 13/14/15 三条版本红线警告）
 
@@ -260,9 +261,4 @@ Step 6  填写本规范「第二章 新项目需提供的 8 类信息清单」
 Step 7  代码生成完成并首次运行时
         → 涉及人脸/物体学习的项目：先确认 face_database/、object_database/ 目录权限正常（os.makedirs exist_ok=True 通常已处理）
         → 功能异常时：先查看 logs/<程序名>_YYYYMMDD.log，不要第一时间改代码
-        → 需要彻底清库时：只使用「清空人脸数据库.py」/「清空物体数据库.py」工具，完成后必须重启 Python 进程再重新学习
-```
-
----
-
-**一句话总原则**：6 份必选文件管「不能做错的铁律 + 能用的 API 全集 + 资源清单信源」，🟡 可选项目代码管「怎么写的现成骨架」，8 类信息管「你的项目到底要什么」。三项齐全，新项目一次性落地成功率最高。
+        → 需要彻底清库时：只使用「清空人脸数据库.py」/「清空物体数据库.py」工具，完成后必须重启 Pyth

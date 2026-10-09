@@ -52,7 +52,7 @@ print((vision_system.result_accessor.get_color_recognition_color(1)))  # 应该�
 
 - **缺少 `LIBGL_ALWAYS_SOFTWARE=1`**：范例顶部没有写 `import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`。如果程序用了 pygame/cv2，在 Rockchip RK3588S 平台上可能触发 Mali GPU 驱动段错误。
 - **使用 `pygame.init()` 全初始化**：部分 pygame 相关范例（如人脸学习、物体学习）用了 `pygame.init()`。**这不是错误写法**——`pygame.init()` 不会抛异常（失败会收进返回值），但它会连带初始化 mixer/joystick/CDROM；**建议**改为 `pygame.display.init()` + `pygame.font.init()` 分段初始化，需要音频时再加 `try: pygame.mixer.init() / except` 并确保全生命周期只 init 一次。真正**必须**分段的是"**摄像头 + 音频**"组合（详见《视觉系统摄像头调用参考方案》7.1）。（2026-09-12 校准：原文"避免音频子系统异常"属断言式表述，已改为分档规则）
-- **GPIO_BUTTON=0 相关代码保留**：范例中的板载按键（GPIO_IO_00）读取代码，实际硬件没有对应实体按键，可删除相关代码。
+- **GPIO_BUTTON=0 相关代码保留**：范例中的板载按键（`GPIO_IO_00`）读取代码，实际硬件**无板载按键**（2026-10-09 已定案），相关读取代码**一律删除**。
 
 ---
 
@@ -77,16 +77,16 @@ create_vs(enable_basic=False, enable_advanced=False)
 ### 1.4 原文件中已删除的补充更新与关键差异提醒原文
 
 > 以下内容原位于《好搭AI派范例代码.md》顶部，2026-08-14 按用户指示从原文件中删除并迁移至此完整保存，供以后项目开发参考。原范例代码文件保持纯净，不再包含任何补充/提醒内容。
-> 本节为原文照录，下方第二章为基于三份干净日志的复核结果，第三章为最新探测发现。
+> 本节为原文照录（其中 `50+ 方法`、`GPIO_BUTTON` 两处旧口径已于 2026-10-09 按定案更正），下方第二章为基于三份干净日志的复核结果，第三章为最新探测发现。
 
-**📌 2026-08-14 补充更新**：本文档的范例是早期参考资料，**实际项目开发请优先参照《系统环境与非视觉官方库探测报告.md》** 中反射枚举得到的**完整 ESP32 类 50+ 方法 + GPIO 常量清单**，以及 voice_api / AudioRecorder / AudioPlayer / TextRecognizer / Line_Sensor 的全部签名。
+**📌 2026-08-14 补充更新**：本文档的范例是早期参考资料，**实际项目开发请优先参照《系统环境与非视觉官方库探测报告.md》** 中反射枚举得到的**完整 ESP32 类 56 个方法 + GPIO 常量清单**，以及 voice_api / AudioRecorder / AudioPlayer / TextRecognizer / Line_Sensor 的全部签名。
 
 **⚠️ 关键差异提醒**（基于 2026-08-14 探测结果）：
 - **USB 摄像头设备号**：范例代码中写的视频设备号不固定，好搭AI派实测可能出现在 **/dev/video40、/dev/video41、/dev/video42**（uvcvideo 驱动），video0~39 是 MIPI/ISP 内部节点。**不能只检测 /dev/video40**，应按 40→41→42 顺序逐个尝试 + `gray.mean()` 帧有效性验证
 - **OpenCV 版本**：范例可能基于 4.x，实际装的是 **cv2 5.0.0**，部分旧 API 有变更
 - **LIBGL_ALWAYS_SOFTWARE**：系统全局未设置，每个程序开头必须写 `import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`
-- **GPIO_BUTTON = 0 忽略**：范例中的板载按键读取，实际硬件无对应实体按键，可删除相关代码
-- **ESP32 隐藏能力**：范例代码只覆盖部分方法，实际还有 I2C、UART、BMP280 气压传感器、WS2812 等 50+ 方法，详见探测报告
+- **无板载按键（GPIO_BUTTON = 0）**：范例中的板载按键读取，实际硬件无对应实体按键，**相关读取代码一律删除**（2026-10-09 已定案）
+- **ESP32 隐藏能力**：范例代码只覆盖部分方法，实际还有 I2C、UART、BMP280 气压传感器、WS2812 等 56 个方法，详见探测报告
 - **dt-apriltags**：pip 已装 `dt-apriltags 3.1.7`，纯 cv2 模式下 AprilTag 识别不用依赖 V3 SDK
 
 ---
@@ -100,8 +100,8 @@ create_vs(enable_basic=False, enable_advanced=False)
 | USB 摄像头设备号 /dev/video40、41、42 | ✅ 正确，三份日志均通过 backup_camera_ids 自动探测成功 |
 | cv2 5.0.0（非 4.x） | ✅ 正确，日志 L3 确认 Python 3.8.10 + cv2 5.0.0 |
 | LIBGL_ALWAYS_SOFTWARE 全局未设置 | ✅ 正确，三个探测脚本均在开头显式设置 |
-| GPIO_BUTTON=0 无实体按键 | ✅ 正确，用户确认忽略 |
-| ESP32 隐藏能力（I2C/UART/BMP280/WS2812 等 50+ 方法） | ✅ 正确，详见系统环境与非视觉官方库探测报告 |
+| 无板载按键（GPIO_BUTTON=0） | ✅ 正确，已定案：相关读取代码一律删除 |
+| ESP32 隐藏能力（I2C/UART/BMP280/WS2812 等 56 个方法） | ✅ 正确，详见系统环境与非视觉官方库探测报告 |
 | dt-apriltags 3.1.7 已预装 | ✅ 正确，纯 cv2 模式下可直接 import 使用 |
 
 ---
