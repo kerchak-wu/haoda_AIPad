@@ -286,6 +286,14 @@
                     }
                 });
 
+                // 1.5) 简介句去掉括号里的平台信息（好搭AI派 AI Coding 项目集）
+                markdownEl.querySelectorAll('p').forEach(function(p) {
+                    const t = p.textContent || '';
+                    if (t.indexOf('AI Coding 项目集') !== -1 && t.indexOf('Rockchip') !== -1) {
+                        p.textContent = t.replace(/（Rockchip[^）]*）/g, ' ').replace(/\s+/g, ' ').trim();
+                    }
+                });
+
                 // 2)「项目资料」平铺列表
                 let projHeading = null;
                 markdownEl.querySelectorAll('h2').forEach(function(h) {
