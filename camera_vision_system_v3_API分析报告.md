@@ -1,9 +1,10 @@
 # camera_vision_system_v3 库完整 API 分析报告
 
-> 报告版本：v2.4  
+> 报告版本：v2.5  
+> 设备端实测收口：2026-10-09（摄像头候选 40→41→42、`remove_callback` 签名、`get_face_id` 返回类型、回调频率 ≈8 次/秒、字段真名等）  
 > 生成日期：2026-08-14（v2.0/v2.1：2026-08-11）  
 > 数据来源：好搭AI派设备探测脚本（反射式成员枚举 + 签名/docstring 解析）+ 三份修复后干净日志实测  
-> 参考资料：好搭AI派范例代码.md、视觉系统摄像头调用参考方案.md（v4.3）、**系统环境与非视觉官方库探测报告_v1.md（新，ESP32/语音/音频/OCR 完整 API）**、**好搭AI派范例代码补充说明.md**  
+> 参考资料：好搭AI派范例代码.md、视觉系统摄像头调用参考方案.md（v4.3）、**系统环境与非视觉官方库探测报告.md（新，ESP32/语音/音频/OCR 完整 API）**、**好搭AI派范例代码补充说明.md**  
 > 更新说明：v2.0 补全三个工厂函数、DetectionConfig/CameraConfig 字段、各检测器构造参数；v2.1 追加第八章"已知易错点"；v2.2 补充 2026-08-14 环境层信息；v2.3 推翻 v2.2 中"检测器不工作"的错误结论（原脚本漏调 `_init_detectors()`），重建 8.8 节；v2.4 基于三份修复后干净日志（零错误），更新 engagement 表格数据+confidence列，新增 8.8.4 回调系统实测总表和 8.8.5 已知 V3 bug 表，修正 5.5/5.8 方法表描述，为未验证算法标注范例代码参考
 
 ---
@@ -206,6 +207,8 @@ create_full_detection_system_v3(
 | `enable_object_detection` | YOLOv8 目标检测 |
 | `enable_pose_detection` | YOLOv8 姿态检测 |
 
+> ⚠️ **开关真名提示**：只有以上 13 个开关是真名。**不存在 `enable_yolov8` / `enable_resnet`**（真名分别是 `enable_object_detection` / `enable_image_classification`）；`DetectionConfig` 是普通 dataclass，写成不存在的名字**不会报错，但会静默失效**。
+
 ### 2.2 摄像头与生命周期方法
 
 | 方法/属性 | 签名 | 说明 |
@@ -297,7 +300,7 @@ DetectionConfig(
     max_lines: Optional[int] = 3,                # 返回的最大线条数
 
     # ===== 色块检测 =====
-    color_block_target: str = '红色',            # 目标颜色
+    color_block_target: str = '红色',            # 目标颜色（**真名**；不是 color_block_target_color）
     color_block_min_width: int = 30,             # 最小宽度（像素）
     color_block_min_height: int = 30,            # 最小高度（像素）
     color_block_similarity: float = 0.5,         # 相似度阈值
@@ -334,7 +337,7 @@ DetectionConfig(
 |------|--------|------|
 | `apriltag_family` | `'tag36h11'` | AprilTag 标签家族 |
 | `max_lines` | `3` | 黑线检测最大返回线条数 |
-| `color_block_target` | `'红色'` | 色块默认目标颜色 |
+| `color_block_target` | `'红色'` | 色块默认目标颜色（**真名**；写成 `color_block_target_color` 不报错但静默失效） |
 | `color_block_min_width/height` | `30 / 30` | 色块最小尺寸 |
 | `color_block_similarity` | `0.5` | 色块相似度阈值 |
 | `color_recognition_threshold` | `50.0` | 颜色识别阈值 |
@@ -358,7 +361,7 @@ CameraConfig(
 ) -> None
 ```
 
-> 💡 **重要发现**：`backup_camera_ids` 默认值是 `[40, 41, 42, 43]`，与项目记忆中「优先使用 /dev/video40 和 /dev/video41」的约定**完全吻合**。这说明库本身就内置了这些设备号作为备份探测顺序，无需应用层手动指定。
+> 💡 **重要发现**：`backup_camera_ids` 默认值是 `[40, 41, 42, 43]`。**注意这只是库的候选列表，不等于设备实际节点**——USB 摄像头节点号随 USB 口/枚举变化，须逐节点帧验证（实测顺序 40→41→42，首个可用 `/dev/video40`）。
 
 ### 各检测器类的构造参数（用于直接实例化或理解内部依赖）
 
@@ -420,12 +423,12 @@ CameraConfig(
 
 | 方法 | 签名 | 触发时机 |
 |------|------|---------|
-| `add_detection_callback(cb)` | `cb: Callable[[Dict], None]` | 每次检测完成时，回调接收检测结果字典（**实测 ~10次/秒**） |
+| `add_detection_callback(cb)` | `cb: Callable[[Dict], None]` | 每次检测完成时，回调接收检测结果字典（**实测 ≈8 次/秒**：46 次/6s，随启用算法数浮动） |
 | `add_frame_callback(cb)` | `cb: Callable[[np.ndarray, Dict], None]` | 每帧都调用，接收画面帧+检测结果 |
 | `add_error_callback(cb)` | `cb: Callable[[Exception], None]` | 检测线程内部抛出异常时回调 |
-| `remove_callback(callback_type, callback)` | `(str, Callable)` | 移除已注册的回调 |
+| `remove_callback(callback_type, callback)` | `(str, Callable)` | 移除已注册的回调。**可用签名：`remove_callback("detection", cb)`**（2026-10-09 实测） |
 
-> **2026-08-14 实测确认**：detection 回调接收的 Dict 含 14 个算法结果字段 + timestamp：
+> **实测确认**：detection 回调接收的 Dict 共 **14 个 key**（**13 类检测算法结果字段 + `timestamp`**）：
 > ```python
 > {
 >   'apriltag': [],           # list 型，空时为 []
@@ -527,8 +530,8 @@ CameraConfig(
 | 方法 | 返回 | 说明 |
 |------|------|------|
 | `get_face_count()` | `int` | 画面中检测到的人脸数 |
-| `get_face_id()` | `int` | 识别出的人脸 ID |
-| `get_face_confidence()` | `float` | 匹配置信度 0~1 |
+| `get_face_id()` | `str \| None` | 识别出的人脸 ID：**成功为 `str`，画面无人脸为 `None`**（2026-10-09 实测，不是 `int`/`0`） |
+| `get_face_confidence()` | `float` | 匹配置信度 0~1（实测返回 `float`） |
 | `get_face_name()` | `str` | 关联的人脸姓名 |
 | `get_face_position()` | `tuple` | 人脸 bbox (x, y, w, h) |
 | `has_face_id(target_id)` | `bool` | 当前是否匹配到指定 ID |
@@ -660,8 +663,19 @@ CameraConfig(
 
 ```python
 # 不导入 camera_vision_system_v3
-import cv2
-cap = cv2.VideoCapture("/dev/video41")  # 直接独占摄像头
+import cv2, os
+# 候选顺序 40→41→42；必须用字符串路径 + CAP_V4L2（禁传 int 节点号），并逐节点做帧验证
+cap = None
+for n in (40, 41, 42):
+    p = f"/dev/video{n}"
+    if not os.path.exists(p):
+        continue
+    c = cv2.VideoCapture(p, cv2.CAP_V4L2)
+    ok, frame = c.read()
+    if ok and frame is not None and frame.mean() > 1:
+        cap = c
+        break
+    c.release()
 ```
 
 ### 模式 B：混合模式（官方算法 + 离线录入）⭐ 推荐
@@ -674,8 +688,18 @@ vision_system = create_vision_system_v3(enable_basic=False)  # 不预加载
 vision_system.detection_config.enable_face_recognition = True
 vision_system._init_detectors()
 # ❌ 不调用 open_camera() 和 start_background_detection()
-# ✅ 用 cv2 独占采图
-cap = cv2.VideoCapture("/dev/video41")
+# ✅ 用 cv2 独占采图：候选顺序 40→41→42，字符串路径 + CAP_V4L2（禁传 int），逐节点帧验证
+cap = None
+for n in (40, 41, 42):
+    p = f"/dev/video{n}"
+    if not os.path.exists(p):
+        continue
+    c = cv2.VideoCapture(p, cv2.CAP_V4L2)
+    ok, frame = c.read()
+    if ok and frame is not None and frame.mean() > 1:
+        cap = c
+        break
+    c.release()
 # 需要录入时，从 cv2 取帧传给视觉系统
 vision_system.learn_new_face(frame=frame_from_cv2)
 ```
@@ -689,7 +713,7 @@ vision_system = create_vision_system_v3(enable_basic=False)
 vision_system.detection_config.enable_face_recognition = True
 vision_system._init_detectors()
 vision_system.open_camera()
-vision_system.threaded_system.start_background_detection(show_preview=False)
+vision_system.threaded_system.start_background_detection(show_preview=False)  # show_preview=True 会弹出 V3 自带预览窗口（需键盘按 q 退出）；推荐 False，画面由自己 pygame 绘制
 # ❌ 绝对禁止再使用 cv2.VideoCapture
 # ✅ 用 capture_frame 取画面，result_accessor 读结果
 while True:
@@ -728,7 +752,7 @@ while True:
 | 配置项 | 真实默认值 | 易错点 |
 |--------|-----------|--------|
 | `create_vision_system_v3.enable_basic` | **`True`** | 范例代码全部传 `enable_basic=False`，但库的真实默认值是 `True`。不传参会默认加载 AprilTag/黑线/二维码三个基础算法，导致启动变慢、内存占用升高。**单一算法场景务必显式传 `enable_basic=False`**。 |
-| `CameraConfig.backup_camera_ids` | **`[40, 41, 42, 43]`** | 库内置的备份摄像头 ID 优先级是 40→41→42→43，与项目记忆中「优先 /dev/video40 和 /dev/video41」一致。如需修改顺序，应自定义 `CameraConfig`。 |
+| `CameraConfig.backup_camera_ids` | **`[40, 41, 42, 43]`** | 库内置的候选列表是 40→41→42→43；**它只是候选，不等于设备节点**（节点号随 USB 口/枚举变化，须逐节点帧验证）。如需修改顺序，应自定义 `CameraConfig`。 |
 | `DetectionConfig.color_block_target` | **`'红色'`** | 色块检测默认目标是红色，且为**中文字符串**。切换目标颜色时必须用中文（如 `'蓝色'`、`'绿色'`）。 |
 | `DetectionConfig.face_db_path` | **`'face_database'`** | 人脸数据库默认存放在当前工作目录下的 `face_database/` 文件夹。**程序的工作目录会影响人脸库位置**，换目录运行会导致已学习人脸"丢失"。 |
 
@@ -745,7 +769,7 @@ while True:
 | 误区 | 正确做法 |
 |------|---------|
 | 直接调用 `result_accessor.get_xxx()` | **必须先调用 `result_accessor.refresh_results()`**，否则读到的是上次缓存的结果（或空结果）。正确顺序：`refresh_results()` → `get_xxx()`。 |
-| 在 `get_face_count() == 0` 时调用 `get_face_id()` | `get_face_id()` 在无人脸时返回 `None` 或 `0`（具体值待核验），但**语义上无意义**。应先判断 `get_face_count() > 0` 再读 `get_face_id()`。 |
+| 在 `get_face_count() == 0` 时调用 `get_face_id()` | `get_face_id()` **成功为 `str`、无人脸为 `None`**（2026-10-09 实测），但**语义上无意义**。应先判断 `get_face_count() > 0` 再读 `get_face_id()`。 |
 
 ### 8.6 资源冲突陷阱
 
@@ -770,7 +794,7 @@ while True:
 > - ❌ "所有 13 个检测算法字段始终为空" —— 之前的脚本遗漏了 `_init_detectors()` 关键步骤，未加载 RKNN 模型
 > - ❌ "人脸/表情识别完全不可用" —— 同一根因
 >
-> **正确初始化流程（6 步，严格按范例代码）**：
+> **正确初始化流程（7 步，严格按范例代码）**：
 > 1. `vs = create_vision_system_v3(camera_id=-1, width=1280, height=720, enable_basic=False, enable_advanced=False)`
 > 2. `vs.open_camera()`
 > 3. `vs.detection_config.enable_XXX = True`（逐算法启用）
@@ -785,8 +809,8 @@ while True:
 |------|--------|-------------------------------|------------------------|-----------|
 | **face_recognition**（人脸识别） | ✅ 可用 | `{success:bool, face_id:None\|str, confidence:float 0~1, face_position:(x,y,w,h), message:'未找到匹配的人脸' \| 注册名}` | `get_face_count()`, `get_face_confidence()`, `get_face_position()`, `get_face_name()`, `get_face_id()`, `has_face_id(requires 2 args)` | face_id=None 时 name=`'ID_None'`，message=`'未找到匹配的人脸'`；未注册人脸库时仅返回人脸位置 |
 | **facial_expression**（表情识别） | ✅ 可用 | `{success:bool, emotions:{8 种情绪置信度}, engagement:{Distracted:float, Engaged:float}, inference_time:float s}` | `get_facial_expression_emotion()`, `get_facial_expression_emotions_confidence()`, `get_facial_expression_engagement()`, `get_facial_expression_engagement_confidence()`, `get_facial_expression_success()`, `get_facial_expression_inference_time()` | engagement 是**分类字符串** `'Engaged'` / `'Distracted'`（非 float）；情绪 8 类：Anger/Contempt/Disgust/Fear/Happiness/Neutral/Sadness/Surprise；推理 ~6ms |
-| **color_block**（颜色块检测） | ✅ 可用 | `{image_info:{w,h,c}, detection_params:{target_color:'红色',min_w:30,min_h:30,similarity:0.5}, color_blocks:[{id,position:{x,y,w,h},center:{x,y},area:int像素²,color_label:'红色'}], total_blocks:int}` | `get_color_block_count()`, `get_color_block_color(i)`, `get_color_block_position(i)`, `get_color_block_center(i)`, `get_color_block_area(i)`, `has_color_block()`, `get_largest_color_block_index()` | **默认目标颜色 = '红色'**，要检测其他颜色需改 `detection_config.color_block_target_color`（枚举值待查） |
-| **color_recognition**（区域颜色识别） | ✅ 可用 | `{image_info:{w:640,h:480,c:3}, regions:[{name:'区域_N', region:(x,y,w,h), error:'None'或'无效的区域坐标...', rgb:None或(r,g,b), hex:None或'#RRGGBB', color_label:None或中文颜色名}], total_regions:int, successful_regions:int, basic_colors:[], color_threshold:{}}` | `get_color_recognition_count()`, `get_color_recognition_name(i)`, `get_color_recognition_color(i)`, `get_color_recognition_rgb(i)` | ⚠️ **重大坐标陷阱**：即使创建时 `width=1280 height=720`，内部实际处理分辨率仍是 **640×480**（callback 中 image_info 可证明）。区域坐标必须按 640×480 设置，否则报错「无效的区域坐标」 |
+| **color_block**（颜色块检测） | ✅ 可用 | `{image_info:{w,h,c}, detection_params:{target_color:'红色',min_width:30,min_height:30,similarity_threshold:0.5}, color_blocks:[{id,position:{x,y,w,h},center:{x,y},area:int像素²,color_label:'红色'}], total_blocks:int}` | `get_color_block_count()`, `get_color_block_color(i)`, `get_color_block_position(i)`, `get_color_block_center(i)`, `get_color_block_area(i)`, `has_color_block()`, `get_largest_color_block_index()` | **默认目标颜色 = '红色'**，要检测其他颜色需改 `detection_config.color_block_target`（**真名**；枚举值待查） |
+| **color_recognition**（区域颜色识别） | ✅ 可用 | `{image_info:{w:640,h:480,c:3}, regions:[{name:'区域_N', region:(x,y,w,h), position:(x,y,w,h), area:int, closest_basic_color:'…', error:'无效的区域坐标…'(**仅越界时出现**，正常帧不出现), rgb:None或(r,g,b), hex:None或'#RRGGBB', color_label:None或中文颜色名}], total_regions:int, successful_regions:int, basic_colors:[], color_threshold:{}}` | `get_color_recognition_count()`, `get_color_recognition_name(i)`, `get_color_recognition_color(i)`, `get_color_recognition_rgb(i)` | ⚠️ **重大坐标陷阱**：即使创建时 `width=1280 height=720`，内部实际处理分辨率仍是 **640×480**（callback 中 image_info 可证明）。区域坐标必须按 640×480 设置，否则报错「无效的区域坐标」 |
 | **qr_code**（二维码） | ❓ 未验证（用户测试时未明确出示可识别的二维码） | `[]` 空 list 时表示无结果（回调 dict 结构为 list，不同于 dict 型算法） | — | 参考范例代码 5.03 二维码识别；需用户专门跑一次测试；失败时可 fallback `cv2.QRCodeDetector()` |
 | **apriltag** | ❓ 未验证（本批次脚本未启用） | `[]` | — | 参考范例代码 5.01/5.02 标签识别；可用 `dt-apriltags`（33.8 FPS）作为替代 |
 | **black_line / color_block 差异** | ✅ color_block 已工作，black_line 未测 | black_line: `{}` 空 dict | — | 参考范例代码 5.07 黑线检测 |
@@ -802,12 +826,12 @@ while True:
 | 项 | 实测值 | 对 V3 开发的影响 |
 |----|-------|----------------|
 | cv2 版本 | **5.0.0**（非 4.x） | V3 内部封装了 cv2，但应用层若混用 `cv2.xxx`，注意 4.x→5.0 的 API 变更。**实测确认**：`findContours` 返回 **2 值** (contours, hierarchy) 而非 4.x 的 3 值；缺失子模块: tracking/video/videoio/photo/stitching/calib3d/features2d/objdetect；可用子模块: aruco/dnn/cuda/face/xfeatures2d/ximgproc/ml/img_hash/phase_unwrapping。所有常量和 45 个常用函数均存在。 |
-| USB 摄像头设备号 | **/dev/video40、/dev/video41、/dev/video42**（uvcvideo 驱动，video0~39 为 MIPI/ISP 内部节点） | 探测顺序 **40→41→42**。`CameraConfig.backup_camera_ids` 默认 [40,41,42,43] 与此一致。**`open_camera()` 无参数** — 摄像头 ID 由 CameraConfig 自动探测，不能传 `open_camera(40)`（会报 `takes exactly 1 positional argument (2 given)`）。 |
+| USB 摄像头设备号 | **/dev/video40、/dev/video41、/dev/video42**（uvcvideo 驱动，video0~39 为 MIPI/ISP 内部节点；**节点号随 USB 口/枚举变化**） | 探测顺序 **40→41→42** + 每步 `os.path.exists` / `CAP_V4L2` / 帧验证；实测本次首个可用为 `/dev/video40`（video42 不存在、video41 可打开但无帧）。`CameraConfig.backup_camera_ids` 默认 [40,41,42,43] **只是库候选列表，不等于设备节点**。**`open_camera()` 无参数** — 摄像头 ID 由 CameraConfig 自动探测，不能传 `open_camera(40)`（会报 `takes exactly 1 positional argument (2 given)`）。 |
 | LIBGL_ALWAYS_SOFTWARE | 系统**全局未设置** | V3 内部若用 GL（部分 RKNN 显示路径）可能触发 GPU 驱动崩溃。所有 V3 程序开头统一加：`import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`（在 pygame/cv2 导入之前）。 |
 | AprilTag 备选方案 | `dt-apriltags 3.1.7` 已 pip 安装，**实测 33.8 FPS** | 若仅需 AprilTag 识别而不需要 V3 其他算法，**可直接 `from dt_apriltags import Detector` + 纯 cv2 模式**，避免启动 V3 的算法初始化开销。 |
 | pandas 库状态 | 当前版本与 numpy 1.24.4 不兼容，import 直接崩 | V3 本身不依赖 pandas。但如果业务层需要分析 V3 输出（CSV / Excel），必须先执行 `python3 -m pip install -U pandas==2.0.3`。 |
 | NPU Python 绑定 | `librknnrt.so` 已装（7.7MB）但 rknnlite2 Python 模块**缺失** | V3 的 RKNN 模型推理走内部 C 绑定（`_init_detectors()` 触发加载），**不依赖 rknnlite2 Python 包**，所以 V3 正常工作无需额外安装。仅当你要用自己的 .rknn 模型绕过 V3 直接推理时，才需要单独装匹配版本的 rknnlite2 whl。 |
-| 回调系统实测 | 4 个方法: `add_detection_callback` / `add_error_callback` / `add_frame_callback` / `remove_callback` | **注意是 `add_*` 不是 `set_*`**。注册方式: `ts.add_detection_callback(my_callback)`。detection 回调接收 **1 个 dict 参数**，含 14 个算法结果字段 + timestamp。回调频率 ~10~17 次/秒。frame 回调接收 **2 个参数** (ndarray 480×640×3, dict)。 |
+| 回调系统实测 | 4 个方法: `add_detection_callback` / `add_error_callback` / `add_frame_callback` / `remove_callback` | **注意是 `add_*` 不是 `set_*`**。注册方式: `ts.add_detection_callback(my_callback)`；移除：`remove_callback("detection", cb)`。detection 回调接收 **1 个 dict 参数**，共 14 个 key（**13 类检测算法 + `timestamp`**）。回调频率 **≈8 次/秒**（实测 46 次/6s，随启用算法数浮动）。frame 回调接收 **2 个参数** (ndarray 480×640×3, dict)，与 detection 同频。 |
 | 性能基准 (640×480) | MediaPipe Hands **15.6 FPS** (+51.0MB), Pose **14.7 FPS** (+54.1MB), dt-apriltags **33.5 FPS** (+0MB) | V3 全托管模式 + 后台检测线程：color_block 推理 ~6ms，多算法并行总 FPS 未知。纯 cv2 + MediaPipe Hands 可达 15-19fps。如需高帧率实时交互，优先用纯 cv2 模式。 |
 | Swap | **无 Swap** (SwapTotal=0), MemAvailable=5.7GiB | 单程序开发无 OOM 风险。同时跑 V3 + MediaPipe + TTS 峰值约 600MB，远低于可用内存。 |
 | result_accessor 实测 | `CompleteDetectionResultAccessor` 类型，11 个表情/人脸方法 + 12 个 color 方法 | **engagement 返回 string**（'Engaged'/'Distracted'，非 float）；**emotion 返回 string**（8 类之一）；**confidence / emotions_confidence 返回 dict**。所有方法调用前必须先 `refresh_results()`。 |
@@ -838,12 +862,12 @@ while True:
 
 | 验证项 | 结果 |
 |--------|------|
-| detection 回调触发 | 226 次（15秒，~15次/秒）✅ |
-| frame 回调触发 | 226 次（与 detection 等频）✅ |
+| detection 回调触发 | 46 次/6s（**≈8 次/秒**，随启用算法数浮动）✅ |
+| frame 回调触发 | 与 detection 同频（**≈8 次/秒**）✅ |
 | error 回调触发 | 0 次（无错误时静默）✅ |
-| detection 回调参数 | `dict`，14 keys（apriltag/black_line/color_block/color_recognition/face_recognition/qr_code/plate_recognition/object_recognition/people_counter/image_classification/object_detection/pose_detection/facial_expression/timestamp） |
+| detection 回调参数 | `dict`，14 keys（**13 类检测算法**：apriltag/black_line/color_block/color_recognition/face_recognition/qr_code/plate_recognition/object_recognition/people_counter/image_classification/object_detection/pose_detection/facial_expression + `timestamp`） |
 | frame 回调参数 | `(ndarray(480,640,3), dict)`，dict 与 detection 回调结构相同 |
-| 回调注册方法 | `add_detection_callback(cb)` / `add_frame_callback(cb)` / `add_error_callback(cb)` / `remove_callback(cb)` |
+| 回调注册/移除方法 | `add_detection_callback(cb)` / `add_frame_callback(cb)` / `add_error_callback(cb)`；移除 `remove_callback("detection", cb)` |
 
 #### 8.8.5 已知 V3 库 bug
 
@@ -862,13 +886,13 @@ while True:
 | # | 盲点 | 现状 | 范例代码参考 |
 |---|------|------|------------|
 | P0-1 | qr_code 能否真识别出二维码内容 | 只确认空时返回 `[]` | 5.03 二维码识别 |
-| P0-2 | color_block_target_color 可接受的枚举值 | 默认值 `'红色'`，如何改为蓝色/绿色/黄色未知 | 5.06 色块识别 |
+| P0-2 | `color_block_target` 可接受的枚举值 | 默认值 `'红色'`，如何改为蓝色/绿色/黄色未知 | 5.06 色块识别 |
 | P0-3 | get_color_recognition_color(i) 完整标签枚举 | 已观测到 5 种：蓝色/黄色/绿色/红色/其他颜色 | 5.04 颜色识别 |
 | P0-4 | 运行时新增算法后是否必须重新调 `_init_detectors()` | 颜色脚本在新增 color_block 时重新调了 | — |
-| P0-5 | has_face_id(face_id) 具体返回行为 | 只知道签名 `has_face_id(self, face_id)` | 5.10 人脸识别 |
-| P0-6 | get_largest_color_block_index() 空场景行为 | 未测 | 5.06 色块识别 |
-| P0-7 | remove_callback() 正确用法 | 只知道方法名 | — |
-| P0-8 | get_latest_results()/get_next_result()/get_all_pending_results() 返回结构 | 只反射出方法名 | — |
+| ~~P0-5~~ | ~~has_face_id(face_id) 具体返回行为~~ | **✅ 已解决（2026-10-09 实测）**，用法见 §5.7 | — |
+| ~~P0-6~~ | ~~get_largest_color_block_index() 空场景行为~~ | **✅ 已解决（2026-10-09 实测）** | — |
+| ~~P0-7~~ | ~~remove_callback() 正确用法~~ | **✅ 已解决**：签名 `remove_callback("detection", cb)`（见 §4.3） | — |
+| ~~P0-8~~ | ~~get_latest_results()/get_next_result()/get_all_pending_results() 返回结构~~ | **✅ 已解决（2026-10-09 实测）**（见 §4.2） | — |
 
 **P1 级（重要算法/API 行为确认）**：
 
@@ -895,4 +919,4 @@ while True:
 
 ---
 
-*报告版本 v2.4 — 2026-08-14 更新：基于修复后三份干净日志（零错误），更新 engagement 表格数据+confidence列，新增 8.8.4 回调系统实测总表和 8.8.5 已知 bug 表，修正 5.5 position/center 描述和 5.8 engagement 描述，为 8.8.1 未验证算法标注范例代码参考，新增 8.8.6 剩余盲点记录。配套日志：`logs/logs_探测_颜色识别_*.txt`、`logs/logs_探测_盲点A_回调系统_*.txt`、`logs/logs_探测_盲点B_表情投入度_*.txt`*
+*报告版本 v2.5 — 2026-08-14 更新（2026-10-09 按设备实测收口）：基于修复后三份干净日志（零错误），更新 engagement 表格数据+confidence列，新增 8.8.4 回调系统实测总表和 8.8.5 已知 bug 表，修正 5.5 position/center 描述和 5.8 engagement 描述，为 8.8.1 未验证算法标注范例代码参考，新增 8.8.6 剩余盲点记录。配套日志：`logs/logs_探测_颜色识别_*.txt`、`logs/logs_探测_盲点A_回调系统_*.txt`、`logs/logs_探测_盲点B_表情投入度_*.txt`*

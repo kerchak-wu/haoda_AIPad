@@ -1,0 +1,16 @@
+[08:45:12] [错误] [ WARN:0@12.307] global cap.cpp:212 open VIDE0I0(V4L2):
+backend is generally available but can't be used to capture by name
+[08:45:24] [错误] [ WARN:0@23.580] global cap v4L.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/videol): select() timeout.
+[08:45:34] [错误][ WARN:0@33.588]global cap V41.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/videol): select() timeout.
+[08:45:44] [错误] [ WARN:0@43.599] global cap v4l.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/videol): select() timeout.
+[08:45:54] [错误] [ WARN:0@53.609] global cap_v4L.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/videol): select() timeout.
+[08:46:04] [错误] [ WARN:0@63.620] global cap_v41.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/videol): select() timeout.
+[08:46:14][错误] [ WARN:0@74.258] global cap_v41.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/video2):select() timeout.
+[08:46:24] [错误1 [ WARN:0@84.268] global cap_v41.cpp:1049 tryIoctl
+VIDEOI0(V4L2:/dev/video2): select() timeout.

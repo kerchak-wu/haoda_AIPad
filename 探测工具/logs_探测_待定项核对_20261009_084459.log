@@ -1,0 +1,852 @@
+====================================================================
+好搭AI派 · 待定项核对探测
+启动时间: 2026-10-09 08:45:00
+Python: 3.8.10 (default, Mar 18 2025, 20:04:55)  [GCC 9.4.0]
+工作目录: /home/cxdz/jupyter/user
+日志文件: /home/cxdz/jupyter/user/logs/探测_待定项核对_20261009_084459.log
+====================================================================
+
+====================================================================
+== A. 系统、版本、环境变量、Python 包状态
+====================================================================
+  --- 内核 ---
+  $ uname -a
+      Linux haoda-pi 5.10.160 #8 SMP Thu Apr 23 11:10:39 CST 2026 aarch64 aarch64 aarch64 GNU/Linux
+  --- 发行版 ---
+  $ cat /etc/os-release | head -3
+      NAME="Ubuntu"
+      VERSION="20.04.6 LTS (Focal Fossa)"
+      ID=ubuntu
+  --- Python ---
+  $ python3 -V; which python3
+      Python 3.8.10
+      /usr/bin/python3
+  --- device-tree ---
+  $ cat /proc/device-tree/compatible 2>/dev/null | tr "\0" " "; echo
+      rockchip,rk3588s-tablet-f12-v11 rockchip,rk3588
+  --- 内存/Swap ---
+  $ free -m | head -3
+      总计         已用        空闲      共享    缓冲/缓存    可用
+      内存：        7920         906        6209          63         804        6869
+      交换：           0           0           0
+  --- 磁盘 ---
+  $ df -h / | tail -1
+      /dev/root       227G   13G  205G    6% /
+  --- 环境变量 ---
+  $ env | grep -iE "libgl|display|pythonpath" || echo "(无相关环境变量)"
+      LIBGL_ALWAYS_SOFTWARE=1
+      DISPLAY=:0
+      PYTHONPATH=/home/cxdz/jupyter/lib
+  --- 关键包 ---
+  $ python3 -m pip list 2>/dev/null | grep -iE "opencv|pygame|numpy|pandas|mediapipe|ultralytics|apriltag|paddle|baidu" || echo "(pip list 无匹配)"
+      baidu-aip                 4.16.13
+      dt-apriltags              3.1.7
+      mediapipe                 0.10.9
+      numpy                     1.24.4
+      opencv-contrib-python     5.0.0.93
+      opencv-python             4.12.0.88
+      pandas                    0.25.3
+      pygame                    2.6.1
+      pygame-ce                 2.5.2
+  --- Python 内省 ---
+  [KEY] cv2_version = 5.0.0
+  [KEY] numpy_version = 1.24.4
+pygame-ce 2.5.2 (SDL 2.30.8, Python 3.8.10)
+  [KEY] pygame_version = 2.5.2
+  [KEY] cv2_file = /home/cxdz/.local/lib/python3.8/site-packages/cv2/__init__.py
+  [KEY] cv2_has_aruco = True
+  [KEY] cv2_has_xfeatures2d = True
+  [KEY] cv2_has_ximgproc = True
+  [KEY] cv2_has_face = True
+  [KEY] cv2_has_dnn = True
+  [KEY] cv2_has_ml = True
+  [KEY] cv2_has_videoio = False
+  [KEY] cv2_findContours_returns = 2
+/usr/lib/python3/dist-packages/pandas/util/testing.py:28: FutureWarning: In the future `np.bool` will be defined as the corresponding NumPy scalar.
+  import pandas._libs.testing as _testing
+  [KEY] import_pandas = AttributeError: module 'numpy' has no attribute 'bool'.
+`np.bool` was a deprecated alias for the builtin `bool`. To avoid this error in existing code, use `bool` by itself. Doing this will not modify any behavior and is safe. If you specifically wanted the numpy scalar type, use `np.bool_` here.
+The aliases was originally deprecated in NumPy 1.20; for more details and guidance see the original release note at:
+    https://numpy.org/devdocs/release/1.20.0-notes.html#deprecations
+  [KEY] import_rknnlite2 = ModuleNotFoundError: No module named 'rknnlite2'
+  [KEY] import_rknn = ModuleNotFoundError: No module named 'rknn'
+  [KEY] import_dt_apriltags = OK
+  [KEY] import_mediapipe = OK
+
+====================================================================
+== B. 目录结构、数据目录、日志扩展名现状
+====================================================================
+  --- 用户程序目录 ---
+  $ ls -l /home/cxdz/jupyter/user/ | head -40
+      总用量 488
+      -rw-rw-rw- 1 cxdz cxdz  55435 8月  13 11:24 人脸表情识别器.py
+      -rw-rw-rw- 1 cxdz cxdz  30329 8月  13 09:52 人数实时统计.py
+      -rw-rw-rw- 1 cxdz cxdz  38975 8月  12 16:31 人体姿态识别器（mediapipe）.py
+      -rw-rw-rw- 1 cxdz cxdz  31312 8月  12 16:29 手势识别控制RGB灯带.py
+      -rw-rw-rw- 1 cxdz cxdz  34169 10月  8 18:55 探测_待定项核对.py
+      -rw-rw-rw- 1 cxdz cxdz  34036 8月  12 16:08 文字识别播报器.py
+      -rw-rw-rw- 1 cxdz cxdz  26712 8月  12 13:56 文字识别视频播放器.py
+      -rw-rw-rw- 1 cxdz cxdz 102403 8月  15 11:14 智慧阅读角.py
+      drwxrwxr-x 3 cxdz cxdz   4096 8月   5 13:30 智能博物
+      -rw-rw-rw- 1 cxdz cxdz  54415 8月  12 09:04 姿态检测（自带算法）.py
+      drwxrwxr-x 7 cxdz cxdz   4096 8月  18  2025 ai
+      drwxrwxrwx 2 root root   4096 8月  18  2025 code
+      drwxrwxr-x 2 cxdz cxdz   4096 8月   5 14:54 face_database
+      -rw-rw-r-- 1 cxdz cxdz     36 8月   5 15:04 face_effect_map.json
+      -rw-rw-r-- 1 cxdz cxdz   1084 8月   5 14:56 face_records.json
+      drwxrwxr-x 2 cxdz cxdz   4096 8月  14 15:04 icons
+      drwxrwxrwx 2 root root   4096 7月  23 17:24 images
+      drwxrwxr-x 2 cxdz cxdz   4096 8月  18  2025 iot
+      drwxrwxr-x 2 cxdz cxdz   4096 10月  9 08:44 logs
+      drwxrwxr-x 3 cxdz cxdz   4096 8月  18  2025 multimedia
+      drwxrwxr-x 2 cxdz cxdz   4096 8月  11 16:48 object_database
+      -rw-rw-r-- 1 cxdz cxdz    281 8月  11 16:50 object_records.json
+      drwxrwxr-x 2 cxdz cxdz   4096 7月  25 08:09 __pycache__
+      drwxrwxr-x 2 cxdz cxdz   4096 8月  14 13:31 recordings
+      drwxrwxrwx 2 root root   4096 8月   8 08:30 videos
+      drwxrwxr-x 3 cxdz cxdz   4096 8月  18  2025 VoiceAssistant
+  --- user/ 下 .py 数量 ---
+  $ ls /home/cxdz/jupyter/user/*.py 2>/dev/null | wc -l
+      9
+  --- lib/ 下 .so 数量 ---
+  $ ls /home/cxdz/jupyter/lib/*.so 2>/dev/null | wc -l
+      31
+  --- model/ 下模型 ---
+  $ ls /home/cxdz/jupyter/model/ 2>/dev/null
+      car_plate_detect_1x3x80x80x16-640-640_rm_transpose_rk3588.rknn
+      insightface_r50.rknn
+      literary_classifier.rknn
+      lite-transformer-decoder-16.rknn
+      lite-transformer-encoder-16.rknn
+      lprnet.rknn
+      mbf_va_mtl_batch1.rknn
+      mel_80_filters.txt
+      mms_tts_eng_decoder_200.rknn
+      mms_tts_eng_encoder_200.rknn
+      mobilenetv2_feature_vector.rknn
+      mobilenet_v2.rknn
+      plate_recognition_color-168-48_rm_transpose_rk3588.rknn
+      plate.txt
+      ppocr_keys_v1.txt
+      ppocrv4_det.rknn
+      ppocrv4_rec.rknn
+      resnet50-v2-7.rknn
+      RetinaFace.rknn
+      story_classifier.rknn
+      synset.txt
+      vocab_en.txt
+      vocab_zh.txt
+      whisper_decoder_base_20s.rknn
+      whisper_encoder_base_20s.rknn
+      yolov8m.rknn
+      yolov8m_seg.rknn
+      yolov8n_obb.rknn
+      yolov8n.rknn
+      yolov8n_seg.rknn
+      yolov8_pose.rknn
+      yolov8s.rknn
+      yolov8s_seg.rknn
+  --- assets/ 字体等 ---
+  $ ls /home/cxdz/jupyter/assets/ 2>/dev/null | head -30
+      Dengb.ttf
+      Dengl.ttf
+      Deng.ttf
+      msyhbd.ttc
+      msyhl.ttc
+      msyh.ttc
+      PingFang_Bold.ttf
+      PingFang_ExtraLight.ttf
+      PingFang_Heavy.ttf
+      PingFang_Light.ttf
+      PingFang_Medium_0.ttf
+      PingFang_Medium.ttf
+      PingFang_Regular_0.ttf
+      PingFang_Regular.ttf
+      PingFang_Semibold.ttf
+      PingFang_Thin.ttf
+      PingFang_Ultralight.ttf
+      simfang.ttf
+      simhei.ttf
+      simkai.ttf
+      SIMLI.TTF
+      simsun.ttc
+      STXINGKA.TTF
+      WenQuanWeiMiHei.ttf
+  --- 三个数据目录是否存在 ---
+  $ ls -d /home/cxdz/jupyter/user/face_database /home/cxdz/jupyter/user/object_database /home/cxdz/jupyter/user/object_data 2>&1
+      ls: 无法访问 '/home/cxdz/jupyter/user/object_data': 没有那个文件或目录
+      /home/cxdz/jupyter/user/face_database
+      /home/cxdz/jupyter/user/object_database
+  --- face_database 内容 ---
+  $ ls -l /home/cxdz/jupyter/user/face_database/ 2>/dev/null
+      总用量 36
+      -rw-rw-r-- 1 cxdz cxdz 28800 8月   5 14:56 face_features.npy
+      -rw-rw-r-- 1 cxdz cxdz   184 8月   5 14:56 face_ids.npy
+  --- object_database 内容 ---
+  $ ls -l /home/cxdz/jupyter/user/object_database/ 2>/dev/null
+      总用量 12
+      -rw-rw-r-- 1 cxdz cxdz 9303 8月  11 16:50 object_database.pkl
+  --- logs/ 现有文件 ---
+  $ ls -l /home/cxdz/jupyter/user/logs/ 2>/dev/null | head -30
+      总用量 180
+      -rw-rw-r-- 1 cxdz cxdz  3868 8月  15 11:23 人脸表情识别器_20260815.log
+      -rw-rw-r-- 1 cxdz cxdz 14881 10月  8 18:57 探测_待定项核对_20261008_185521.log
+      -rw-rw-r-- 1 cxdz cxdz  8172 10月  9 08:45 探测_待定项核对_20261009_084459.log
+      -rw-r--r-- 1 root root 49929 8月  15 15:20 探测_硬件规格_20260815.log
+      -rw-rw-r-- 1 cxdz cxdz 46363 9月  12 16:03 探测_硬件规格_20260912.log
+      -rw-rw-r-- 1 cxdz cxdz  1770 8月  15 11:22 文字识别播报器_20260815.log
+      -rw-rw-r-- 1 cxdz cxdz  1271 8月  15 11:21 文字识别视频播放器_20260815.log
+      -rw-rw-r-- 1 cxdz cxdz  8797 8月  15 11:18 智慧阅读角_20260815.log
+      -rw-rw-r-- 1 cxdz cxdz  7856 8月  14 13:28 logs_探测_盲点A_回调系统_20260814.txt
+      -rw-rw-r-- 1 cxdz cxdz  9755 8月  14 13:31 logs_探测_盲点B_表情投入度_20260814.txt
+      -rw-rw-r-- 1 cxdz cxdz  8511 8月  14 13:26 logs_探测_颜色识别_20260814.txt
+  --- logs/ 扩展名直方图 ---
+  $ ls /home/cxdz/jupyter/user/logs/ 2>/dev/null | sed "s/.*\.//" | sort | uniq -c
+      8 log
+            3 txt
+  [KEY] face_records.json = 不存在
+  [KEY] object_records.json = 不存在
+
+====================================================================
+== C. 串口与 ESP32 连接方式（核对 ttyS9 vs ttyCH341USB*）
+====================================================================
+  --- 串口节点 ---
+  $ ls -l /dev/ttyS* /dev/ttyCH341* /dev/ttyUSB* /dev/ttyACM* 2>&1
+      ls: 无法访问 '/dev/ttyUSB*': 没有那个文件或目录
+      ls: 无法访问 '/dev/ttyACM*': 没有那个文件或目录
+      crw-rw---- 1 root dialout 169,  0 10月  9 08:44 /dev/ttyCH341USB0
+      crw-rw---- 1 root dialout 169,  1 10月  9 08:44 /dev/ttyCH341USB1
+      crw-rw---- 1 root dialout   4, 73 10月  9 08:44 /dev/ttyS9
+  --- ttyS9 stty ---
+  $ stty -F /dev/ttyS9 2>&1 | head -3
+      speed 1500000 baud; line = 15;
+      min = 1; time = 0;
+      -brkint -icrnl -imaxbel
+  --- ttyS9 udev ---
+  $ udevadm info -q property -n /dev/ttyS9 2>/dev/null | head -8
+      DEVPATH=/devices/platform/febc0000.serial/tty/ttyS9
+      DEVNAME=/dev/ttyS9
+      MAJOR=4
+      MINOR=73
+      SUBSYSTEM=tty
+      USEC_INITIALIZED=5333872
+      ID_MM_CANDIDATE=1
+      TAGS=:systemd:
+  --- dmesg 串口 ---
+  $ dmesg 2>/dev/null | grep -iE "ttyS9|ch341|cp210|ftdi|febc0000|serial" | head -12 || echo "(dmesg 无权限或无匹配)"
+      [    1.566520] Kernel command line: storagemedia=emmc androidboot.storagemedia=emmc androidboot.mode=normal  androidboot.verifiedbootstate=orange androidboot.serialno=60071388492ba334  rw rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 root=PARTUUID=614e0000-0000
+      [    2.896395] rockchip-cpuinfo cpuinfo: Serial		: 60071388492ba334
+      [    3.188366] Serial: 8250/16550 driver, 10 ports, IRQ sharing disabled
+      [    3.188776] febc0000.serial: ttyS9 at MMIO 0xfebc0000 (irq = 99, base_baud = 1500000) is a 16550A
+      [    3.250056] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+      [    3.250068] usb usb1: SerialNumber: fc800000.usb
+      [    3.310727] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+      [    3.310739] usb usb2: SerialNumber: fc840000.usb
+      [    3.311474] usbcore: registered new interface driver usbserial_generic
+      [    3.311483] usbserial: USB Serial support registered for generic
+      [    3.311494] usbcore: registered new interface driver cp210x
+      [    3.311502] usbserial: USB Serial support registered for cp210x
+  --- USB 转串口驱动 ---
+  $ lsmod 2>/dev/null | grep -iE "ch341|cp210|ftdi|usbserial" || echo "(无 USB 转串口驱动模块)"
+      ch341                  24576  0
+  [KEY] serial_open__dev_ttyS9 = OK 可打开（已立即关闭）
+  [KEY] serial_open__dev_ttyCH341USB0 = OK 可打开（已立即关闭）
+  [KEY] serial_open__dev_ttyCH341USB1 = OK 可打开（已立即关闭）
+  [KEY] serial_open__dev_ttyUSB0 = 节点不存在
+
+====================================================================
+== D. 摄像头节点实况（存在性 + 能否读到有效帧）
+====================================================================
+  --- video 节点尾部 ---
+  $ ls -l /dev/video* 2>/dev/null | tail -12
+      crw-rw----+ 1 root video 81, 38 10月  9 08:44 /dev/video38
+      crw-rw----+ 1 root video 81, 39 10月  9 08:44 /dev/video39
+      crw-rw----+ 1 root video 81,  4 10月  9 08:44 /dev/video4
+      crw-rw----+ 1 root video 81, 52 10月  9 08:44 /dev/video40
+      crw-rw----+ 1 root video 81, 53 10月  9 08:44 /dev/video41
+      crw-rw----+ 1 root video 81,  5 10月  9 08:44 /dev/video5
+      crw-rw----+ 1 root video 81,  6 10月  9 08:44 /dev/video6
+      crw-rw----+ 1 root video 81,  7 10月  9 08:44 /dev/video7
+      crw-rw----+ 1 root video 81,  8 10月  9 08:44 /dev/video8
+      crw-rw----+ 1 root video 81,  9 10月  9 08:44 /dev/video9
+      -rw-rw----  1 root video      4 10月  9 08:44 /dev/video-dec0
+      -rw-rw----  1 root video      4 10月  9 08:44 /dev/video-enc0
+  --- video 节点总数 ---
+  $ ls /dev/video* 2>/dev/null | wc -l
+      44
+  --- v4l2-ctl ---
+  $ v4l2-ctl --list-devices 2>&1 | head -30 || echo "(v4l2-ctl 未安装)"
+      rkisp-statistics (platform: rkisp):
+      	/dev/video29
+      	/dev/video30
+      	/dev/video38
+      	/dev/video39
+      
+      rkcif-mipi-lvds2 (platform:rkcif):
+      	/dev/media0
+      	/dev/media1
+      
+      rkcif (platform:rkcif-mipi-lvds2):
+      	/dev/video0
+      	/dev/video1
+      	/dev/video2
+      	/dev/video3
+      	/dev/video4
+      	/dev/video5
+      	/dev/video6
+      	/dev/video7
+      	/dev/video8
+      	/dev/video9
+      	/dev/video10
+      
+      rkcif (platform:rkcif-mipi-lvds3):
+      	/dev/video11
+      	/dev/video12
+      	/dev/video13
+      	/dev/video14
+      	/dev/video15
+      	/dev/video16
+  --- 逐个候选节点探测（CAP_V4L2 + 最多 5 帧灰度均值验证）---
+  /dev/video42     不存在
+  /dev/video41     opened=False shape=None             mean=None     fourcc=-1 -1x-1
+  /dev/video40     opened=True  shape=(480, 640, 3)    mean=111.22939561631945 fourcc=1448695129 640x480
+  /dev/video43     不存在
+  /dev/video0      opened=True  shape=(480, 640, 3)    mean=173.742939453125 fourcc=540029273 640x480
+  /dev/video1      opened=True  shape=None             mean=None     fourcc=540029273 640x480
+  /dev/video2      opened=True  shape=None             mean=None     fourcc=540029273 640x480
+  [KEY] camera_usable_nodes = ['/dev/video40', '/dev/video0']
+  [KEY] camera_first_usable = /dev/video40
+
+====================================================================
+== E. camera_vision_system_v3 反射（开关真名、字段真名、默认值）
+====================================================================
+AprilTag 库已加载: dt_apriltags
+INFO:color_block_detector:PIL可用，支持中文字体渲染
+  create_vision_system_v3(camera_id: 'int' = -1, width: 'int' = 640, height: 'int' = 480, enable_basic: 'bool' = True, enable_advanced: 'bool' = False, auto_detect: 'bool' = True) -> 'CameraVisionSystemV3'
+  create_ai_detection_system(camera_id: 'int' = -1, width: 'int' = 640, height: 'int' = 480) -> 'CameraVisionSystemV3'
+  create_full_detection_system_v3(camera_id: 'int' = -1, width: 'int' = 640, height: 'int' = 480) -> 'CameraVisionSystemV3'
+  [KEY] CameraConfig_backup_camera_ids = [40, 41, 42, 43]
+  [KEY] v3_create_ok = True
+  [KEY] DetectionConfig_class = DetectionConfig
+  [KEY] enable_switch_count = 13
+  enable_* 真名（13 个）:
+      enable_apriltag                  = False
+      enable_black_line                = False
+      enable_color_block               = False
+      enable_color_recognition         = False
+      enable_face_recognition          = False
+      enable_facial_expression         = False
+      enable_image_classification      = False
+      enable_object_detection          = False
+      enable_object_recognition        = False
+      enable_people_counter            = False
+      enable_plate_recognition         = False
+      enable_pose_detection            = False
+      enable_qr_code                   = False
+  [KEY] enable_has_yolov8 = False
+  [KEY] enable_has_resnet = False
+  [KEY] enable_has_object_detection = True
+  [KEY] enable_has_image_classification = True
+  [KEY] field_color_block_target = True
+  [KEY] field_color_block_target_color = False
+  [KEY] field_color_block_similarity = True
+  [KEY] color_block_target_value = 红色
+  [KEY] field_face_db_path = face_database
+  [KEY] field_object_db_path = object_database
+  --- 全部 DetectionConfig 字段（截断显示）---
+      apriltag_family                    = 'tag36h11'
+      color_block_min_height             = 30
+      color_block_min_width              = 30
+      color_block_similarity             = 0.5
+      color_block_target                 = '红色'
+      color_recognition_regions          = []
+      color_recognition_threshold        = 50.0
+      enable_apriltag                    = False
+      enable_black_line                  = False
+      enable_color_block                 = False
+      enable_color_recognition           = False
+      enable_face_recognition            = False
+      enable_facial_expression           = False
+      enable_image_classification        = False
+      enable_object_detection            = False
+      enable_object_recognition          = False
+      enable_people_counter              = False
+      enable_plate_recognition           = False
+      enable_pose_detection              = False
+      enable_qr_code                     = False
+      face_db_path                       = 'face_database'
+      face_model_path                    = None
+      max_lines                          = 3
+      object_db_path                     = 'object_database'
+      plate_recognition_mode             = 'auto'
+      resnet_labels_path                 = None
+      resnet_model_path                  = None
+      roi                                = None
+      yolov8_model_type                  = 's'
+  [KEY] vs_has_cleanup = True
+  [KEY] vs_has_stop_background_top = False
+  [KEY] open_camera_sig = () -> 'bool'
+
+====================================================================
+== F. V3 运行实测（7 步流程、640×480 坐标、回调、结果结构）
+====================================================================
+✓ 使用备用摄像头 ID: 40
+✓ 摄像头已打开: ID=40, 分辨率=640x480, 帧率=30.0fps
+  [KEY] open_camera_return = True
+  [KEY] open_camera_seconds = 1.93
+I:color_block_detector:成功加载中文字体: /home/cxdz/jupyter/assets/simfang.ttf
+I:color_block_detector:色块识别驱动初始化完成
+I:color_block_detector:相似度阈值设置为: 0.50
+✓ 颜色块检测器初始化成功
+I:color_recognition_driver:成功加载中文字体: /home/cxdz/jupyter/assets/simfang.ttf
+I:color_recognition_driver:颜色识别驱动初始化完成, 颜色阈值: 50.0
+✓ 颜色识别器初始化成功
+已加载 7 个注册人脸
+--> 加载 RetinaFace 模型
+W rknn-toolkit-lite2 version: 2.3.2
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+RetinaFace 模型加载成功
+--> 加载 insightface_r50 模型
+W rknn-toolkit-lite2 version: 2.3.2
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+insightface 模型加载成功
+✓ 人脸识别器初始化成功
+✓ 后台检测已启动
+  [KEY] start_background_detection = OK
+  [KEY] callback_register = OK
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+W:color_recognition_driver:区域坐标超出图像范围: (800, 200, 400, 400), 图像尺寸: (480, 640, 3)
+E:color_recognition_driver:处理区域 区域_2 时出错: 无效的区域坐标: (800, 200, 400, 400)
+  [KEY] callback_detection_in_6s = 46
+  [KEY] callback_frame_in_6s = 46
+  [KEY] detection_dict_keys = 14
+  detection dict keys: ['apriltag', 'black_line', 'color_block', 'color_recognition', 'face_recognition', 'facial_expression', 'image_classification', 'object_detection', 'object_recognition', 'people_counter', 'plate_recognition', 'pose_detection', 'qr_code', 'timestamp']
+  [KEY] remove_callback_sig = remove_callback("detection", cb) 可用
+  [KEY] get_latest_results_type = dict
+  [KEY] get_latest_results_keys = ['apriltag', 'black_line', 'color_block', 'color_recognition', 'face_recognition', 'facial_expression', 'image_classification', 'object_detection', 'object_recognition', 'people_counter', 'plate_recognition', 'pose_detection', 'qr_code', 'timestamp']
+  [KEY] color_recognition_image_info = {'width': 640, 'height': 480, 'channels': 3}
+  [KEY] color_recognition_regions_count = 2
+      region[0] = {'name': '区域_1', 'region': (50, 100, 200, 200), 'rgb': (41, 38, 27), 'hex': '#29261b', 'area': 40000, 'position': {'x': 50, 'y': 100, 'width': 200, 'height': 200}, 'color_label': '黑色', 'closest_basic_color': '黑色', 'color_distance': 0.0, 'is_basic_color': True,...(截断)
+      region[1] = {'name': '区域_2', 'region': (800, 200, 400, 400), 'error': '无效的区域坐标: (800, 200, 400, 400)', 'rgb': None, 'hex': None, 'color_label': None}
+  [KEY] color_block_detection_params = {'target_color': '红色', 'min_width': 30, 'min_height': 30, 'similarity_threshold': 0.5}
+  [KEY] get_next_result_type = dict
+  [KEY] get_all_pending_results_type = list len=9
+  --- result_accessor 方法清单 ---
+      ['calculate_distance_between_points', 'count_detected_objects_by_class', 'get_active_detection_types', 'get_apriltag_center', 'get_apriltag_corners', 'get_apriltag_count', 'get_apriltag_decision_margin', 'get_apriltag_family', 'get_apriltag_goodness', 'get_apriltag_hamming', 'get_apriltag_id', 'get_apriltag_pose_R', 'get_apriltag_pose_t', 'get_color_block_area', 'get_color_block_center', 'get_color_block_color', 'get_color_block_count', 'get_color_block_position', 'get_color_recognition_color', 'get_color_recognition_count', 'get_color_recognition_name', 'get_color_recognition_rgb', 'get_curve_count', 'get_detection_summary', 'get_detection_timestamp', 'get_face_confidence', 'get_face_count', 'get_face_id', 'get_face_name', 'get_face_position', 'get_facial_expression_emotion', 'get_facial_expression_emotions_confidence', 'get_facial_expression_engagement', 'get_facial_expression_engagement_confidence', 'get_facial_expression_inference_time', 'get_facial_expression_success', 'get_image_classification_class_name', 'get_image_classification_class_name_top', 'get_image_classification_confidence', 'get_image_classification_count', 'get_largest_color_block_index', 'get_line_angle', 'get_line_count', 'get_line_endpoints', 'get_line_length', 'get_nearest_apriltag_to_point', 'get_object_detection_box', 'get_object_detection_class_id', 'get_object_detection_class_name', 'get_object_detection_confidence', 'get_object_detection_count', 'get_object_recognition_class_name', 'get_object_recognition_confidence', 'get_object_recognition_message', 'get_object_recognition_status', 'get_object_recognition_success', 'get_people_counter_in', 'get_people_counter_net_flow', 'get_people_counter_out', 'get_people_counter_total_count', 'get_plate_recognition_color', 'get_plate_recognition_confidence', 'get_plate_recognition_count', 'get_plate_recognition_position', 'get_plate_recognition_success', 'get_plate_recognition_text', 'get_plate_recognition_type', 'get_pose_detection_box', 'get_pose_detection_confidence', 'get_pose_detection_count', 'get_pose_detection_keypoints', 'get_pose_detection_specific_keypoint', 'get_qr_code_content', 'get_qr_code_count', 'get_qr_code_position', 'get_qr_code_type', 'has_any_detection', 'has_apriltag_id', 'has_color_block', 'has_face_id', 'has_image_classification', 'has_object_detection_class', 'has_people_counter_movement', 'is_point_in_bbox', 'qr_code_contains_text', 'refresh_results']
+  [KEY] result_accessor_method_count = 86
+  [KEY] ra_has_get_object_name = False
+  [KEY] ra_has_get_object_recognition_count = False
+  --- 人脸相关 getter 返回值类型（P0-10）---
+  [KEY] get_face_count_repr = 0 (type=int)
+  [KEY] get_face_id_repr = None (type=NoneType)
+  [KEY] get_face_name_repr = '' (type=str)
+  [KEY] get_face_confidence_repr = 0.0 (type=float)
+  [KEY] get_face_position_repr = (0, 0, 0, 0) (type=tuple)
+  [KEY] has_face_id_return = 异常: TypeError: Argument 'target_id' has incorrect type (expected int, got str)
+  [KEY] get_largest_color_block_index = -1
+  [KEY] get_color_block_center(0) = (0, 0)
+  --- 清理 ---
+✓ 后台检测已停止
+      stop_background_detection: OK
+✓ 摄像头已关闭
+      close_camera: OK
+✓ 系统资源已清理
+      cleanup: OK
+
+====================================================================
+== G. ESP32 模块（引脚常量、方法清单、串口连通）
+====================================================================
+  [KEY] esp32_constants = ['ADC_IO_01', 'ADC_IO_02', 'ADC_IO_03', 'ADC_IO_04', 'ADC_IO_05', 'ADC_IO_06', 'ADC_IO_07', 'ADC_IO_08', 'GPIO_BUTTON', 'GPIO_IO_01', 'GPIO_IO_02', 'GPIO_IO_03', 'GPIO_IO_04', 'GPIO_IO_05', 'GPIO_IO_06', 'GPIO_IO_07', 'GPIO_IO_08']
+  [KEY] esp32_gpio_count = 8
+  [KEY] esp32_adc_count = 8
+  [KEY] esp32_gpio_names = ['GPIO_IO_01', 'GPIO_IO_02', 'GPIO_IO_03', 'GPIO_IO_04', 'GPIO_IO_05', 'GPIO_IO_06', 'GPIO_IO_07', 'GPIO_IO_08']
+  [KEY] esp32_adc_names = ['ADC_IO_01', 'ADC_IO_02', 'ADC_IO_03', 'ADC_IO_04', 'ADC_IO_05', 'ADC_IO_06', 'ADC_IO_07', 'ADC_IO_08']
+  [KEY] esp32_gpio_button = ['GPIO_BUTTON']
+  [KEY] esp32_method_count = 56
+  ESP32 方法清单:
+      ['analogRead', 'analogReadCallback', 'analogWrite', 'autoDetectPort', 'bmp280ReadPress', 'bmp280ReadPressCallback', 'bmp280ReadTemperature', 'bmp280ReadTemperatureCallback', 'char2byte', 'check_device_response', 'close', 'dhtReadHumidity', 'dhtReadHumidityCallback', 'dhtReadTemperature', 'dhtReadTemperatureCallback', 'digitalRead', 'digitalReadCallback', 'digitalWrite', 'ds18b20Read', 'ds18b20ReadCallback', 'excepthook', 'exit', 'float2bytes', 'i2c_init', 'i2c_readfrom', 'i2c_readfrom_mem', 'i2c_scan', 'i2c_writeto', 'i2c_writeto_mem', 'listAvailablePorts', 'long2bytes', 'motor_MA', 'motor_MB', 'onParse', 'readBytes', 'readDouble', 'readFloat', 'readLong', 'readShort', 'readString', 'reset_device', 'responseValue', 'restart_device', 'safe_operation', 'servo', 'short2bytes', 'start', 'uart_any', 'uart_deinit', 'uart_init', 'uart_read', 'uart_write', 'ultrasonicRead', 'ultrasonicReadCallback', 'ws2812Init', 'ws2812Write']
+  [KEY] esp32_has_digitalRead = True
+  [KEY] esp32_has_digitalWrite = True
+  [KEY] esp32_has_analogRead = True
+  [KEY] esp32_has_analogWrite = True
+  [KEY] esp32_has_servo = True
+  [KEY] esp32_has_ws2812Init = True
+  [KEY] esp32_has_ws2812Write = True
+  [KEY] esp32_has_dhtReadTemperature = True
+  [KEY] esp32_has_ds18b20Read = True
+  [KEY] esp32_has_ultrasonicRead = True
+  [KEY] esp32_has_bmp280ReadPress = True
+  [KEY] esp32_has_i2c_init = True
+  [KEY] esp32_has_uart_init = True
+  [KEY] esp32_has_digitalReadCallback = True
+  [KEY] esp32_has_analogReadCallback = True
+init ESP32
+正在自动检测ESP32设备...
+检测到CH341驱动已加载
+发现可用串口: ['/dev/ttyCH341USB1']
+正在测试串口: /dev/ttyCH341USB1
+✓ 串口 /dev/ttyCH341USB1 可用
+<ESP32.mSerial object at 0x7f2de263a0>
+✓ 成功连接到ESP32设备: /dev/ttyCH341USB1
+  [KEY] esp32_board_start = True
+
+====================================================================
+== H. Line_Sensor 模块
+====================================================================
+  [KEY] line_sensor_module_members = ['ESP32', 'I2C_PROXY', 'Line_Sensor']
+  [KEY] line_sensor_class = Line_Sensor
+  [KEY] line_sensor_methods = ['Lineheight', 'linecalibrate', 'readline', 'readline_all', 'readlinead']
+
+====================================================================
+== I. audio_recorder（方法、默认参数、录音落盘）
+====================================================================
+  --- ALSA 录音设备 ---
+  $ arecord -l 2>&1 | head -10
+      **** CAPTURE 硬體裝置清單 ****
+      card 0: rockchipes8388c [rockchip,es8388-codec], device 0: dailink-multicodecs ES8323.7-0011-0 [dailink-multicodecs ES8323.7-0011-0]
+        子设备: 1/1
+        子设备 #0: subdevice #0
+  --- ALSA 播放设备 ---
+  $ aplay -l 2>&1 | head -10
+      **** PLAYBACK 硬體裝置清單 ****
+      card 0: rockchipes8388c [rockchip,es8388-codec], device 0: dailink-multicodecs ES8323.7-0011-0 [dailink-multicodecs ES8323.7-0011-0]
+        子设备: 1/1
+        子设备 #0: subdevice #0
+  [KEY] audio_recorder_members = ['AudioRecorder', 'argparse', 'datetime', 'main', 'np', 'os', 'sd', 'sf', 'sys', 'threading', 'time']
+  [KEY] audio_recorder_methods = ['record_fixed_duration', 'save_audio', 'set_output_dir', 'start_recording', 'stop_recording']
+  [KEY] audio_recorder_has_record_fixed_duration = True
+  [KEY] audio_recorder_has_start = False
+  [KEY] audio_recorder_has_stop = False
+  [KEY] audio_recorder_has_save_audio = True
+  [KEY] audio_recorder_has_set_sample_rate = False
+  [KEY] audio_recorder_has_pause = False
+  [KEY] audio_recorder_has_is_recording = False
+可用的音频设备:
+  0: rockchip,es8388-codec: dailink-multicodecs ES8323.7-0011-0 (hw:0,0) (输入声道: 2)
+  1: sysdefault (输入声道: 128)
+  2: samplerate (输入声道: 128)
+  3: speexrate (输入声道: 128)
+  4: pulse (输入声道: 32)
+  5: upmix (输入声道: 8)
+  6: vdownmix (输入声道: 6)
+  8: default (输入声道: 32)
+  [KEY] audio_recorder_default_sample_rate = 16000
+  [KEY] audio_recorder_default_channels = 1
+  [KEY] audio_recorder_default_dtype = float32
+开始录制 2 秒音频...
+录音中... 请说话
+录音完成!
+保存音频文件时出错: Error opening 'recordings/recordings/_probe_2s.wav': System error.
+  [KEY] audio_record_result = record_fixed_duration(2, filename=...) -> 返回类型=NoneType
+  [KEY] audio_record_wav_exists = False
+  [KEY] audio_record_wav_size = 0
+
+====================================================================
+== J. audio_player 全反射（确认是否存在 play()）
+====================================================================
+  [KEY] audio_player_members = ['AudioPlayer', 'BytesIO', 'get_global_player', 'play_audio', 'play_wav_audio', 'pyaudio', 'pygame', 'wave']
+  [KEY] audio_player_methods = ['cleanup', 'play_audio', 'play_file', 'play_with_pyaudio', 'play_with_pygame']
+  [KEY] audio_player_has_play = False
+  [KEY] audio_player_has_play_file = True
+  [KEY] audio_player_has_play_audio = True
+  [KEY] audio_player_has_pause = False
+  [KEY] audio_player_has_resume = False
+  [KEY] audio_player_has_stop = False
+  [KEY] audio_player_has_set_volume = False
+  [KEY] audio_player_has_seek = False
+      cleanup                  (self)
+      play_audio               (self, audio_bytes, prefer_pygame=True)
+      play_file                (self, file_path, prefer_pygame=True)
+      play_with_pyaudio        (self, audio_bytes)
+      play_with_pygame         (self, audio_bytes)
+
+====================================================================
+== K. text_recognition（类方法 + 模块级函数）
+====================================================================
+  [KEY] text_recognition_module = OK（已在 cv2/pygame/V3 之前成功导入）
+  [KEY] text_recognition_module_members = ['DET_INPUT_SHAPE', 'PPOCR_AVAILABLE', 'TextRecognizer', 'TextSystem', 'cv2', 'extract_text_from_image', 'np', 'os', 'recognize_image_text', 'sys']
+  [KEY] text_recognizer_methods = ['cleanup', 'initialize', 'recognize_text']
+  [KEY] text_recognizer_has_set_language = False
+  [KEY] text_recognizer_has_set_region = False
+  [KEY] text_recognizer_has_angle_classify = False
+  [KEY] text_recognizer_recognize_text_sig = (self, image_input, confidence_threshold=0.5)
+  [KEY] text_recognizer_instantiate = OK
+
+====================================================================
+== L. voice_api 反射（不发起网络请求）
+====================================================================
+  [KEY] voice_api_members = ['API_BASE_URL', 'API_VOICE_URL', 'TOKEN_FILE_PATH', 'VoiceAPI', 'base64', 'json', 'os', 'requests', 'time']
+  [KEY] voice_api_methods = ['get_token', 'llm_chat', 'llm_chat_znbw_2025', 'translate_english', 'tts_synthesize', 'voice_recognition']
+  [KEY] voice_api_has_llm_chat = True
+  [KEY] voice_api_has_llm_chat_znbw_2025 = True
+  [KEY] voice_api_has_voice_recognition = True
+  [KEY] voice_api_has_tts_synthesize = True
+  [KEY] voice_api_has_get_token = True
+  [KEY] voice_api_has_refresh_token = False
+  [KEY] voice_api_API_BASE_URL = http://www.haohaodada.com/project/voiceAI/ApiZNBW.php
+  [KEY] voice_api_API_VOICE_URL = http://www.haohaodada.com/project/voiceAI/ApiXXKJ.php
+  [KEY] voice_api_TOKEN_FILE_PATH = /tmp/.system_cache/config.json
+  [KEY] voice_api_token_file_exists = False
+
+====================================================================
+== M. 显示能力（窗口最大尺寸核对）
+====================================================================
+  --- xrandr (DISPLAY=:0) ---
+  $ DISPLAY=:0 xrandr 2>&1 | head -20 || echo "(DISPLAY=:0 不可用)"
+      Screen 0: minimum 320 x 200, current 1920 x 1200, maximum 16384 x 16384
+      eDP-1 disconnected (normal left inverted right x axis y axis)
+      DSI-1 connected primary 1920x1200+0+0 right (normal left inverted right x axis y axis) 0mm x 0mm
+         1200x1920     60.09*+
+      DP-1 disconnected (normal left inverted right x axis y axis)
+  --- xrandr (继承环境) ---
+  $ xrandr 2>&1 | head -20 || echo "(当前环境无 DISPLAY)"
+      Screen 0: minimum 320 x 200, current 1920 x 1200, maximum 16384 x 16384
+      eDP-1 disconnected (normal left inverted right x axis y axis)
+      DSI-1 connected primary 1920x1200+0+0 right (normal left inverted right x axis y axis) 0mm x 0mm
+         1200x1920     60.09*+
+      DP-1 disconnected (normal left inverted right x axis y axis)
+  --- xdpyinfo ---
+  $ DISPLAY=:0 xdpyinfo 2>/dev/null | grep -E "dimensions|resolution" | head -5 || echo "(xdpyinfo 不可用)"
+      <无输出>
+
+====================================================================
+== N. 结论速览（便于快速核对）
+====================================================================
+  cv2_version                            | 5.0.0
+  numpy_version                          | 1.24.4
+  pygame_version                         | 2.5.2
+  cv2_file                               | /home/cxdz/.local/lib/python3.8/site-packages/cv2/__init__.py
+  cv2_has_aruco                          | True
+  cv2_has_xfeatures2d                    | True
+  cv2_has_ximgproc                       | True
+  cv2_has_face                           | True
+  cv2_has_dnn                            | True
+  cv2_has_ml                             | True
+  cv2_has_videoio                        | False
+  cv2_findContours_returns               | 2
+  import_pandas                          | AttributeError: module 'numpy' has no attribute 'bool'.
+`np.bool` was a deprecated alias for the builtin `bool`. To avoid this error in existing code, use `bool` by itself. Doing this will not modify any behavior and is safe. If you specifically wanted the numpy scalar type, use `np.bool_` here.
+The aliases was originally deprecated in NumPy 1.20; for more details and guidance see the original release note at:
+    https://numpy.org/devdocs/release/1.20.0-notes.html#deprecations
+  import_rknnlite2                       | ModuleNotFoundError: No module named 'rknnlite2'
+  import_rknn                            | ModuleNotFoundError: No module named 'rknn'
+  import_dt_apriltags                    | OK
+  import_mediapipe                       | OK
+  face_records.json                      | 不存在
+  object_records.json                    | 不存在
+  serial_open__dev_ttyS9                 | OK 可打开（已立即关闭）
+  serial_open__dev_ttyCH341USB0          | OK 可打开（已立即关闭）
+  serial_open__dev_ttyCH341USB1          | OK 可打开（已立即关闭）
+  serial_open__dev_ttyUSB0               | 节点不存在
+  camera_usable_nodes                    | ['/dev/video40', '/dev/video0']
+  camera_first_usable                    | /dev/video40
+  CameraConfig_backup_camera_ids         | [40, 41, 42, 43]
+  v3_create_ok                           | True
+  DetectionConfig_class                  | DetectionConfig
+  enable_switch_count                    | 13
+  enable_has_yolov8                      | False
+  enable_has_resnet                      | False
+  enable_has_object_detection            | True
+  enable_has_image_classification        | True
+  field_color_block_target               | True
+  field_color_block_target_color         | False
+  field_color_block_similarity           | True
+  color_block_target_value               | 红色
+  field_face_db_path                     | face_database
+  field_object_db_path                   | object_database
+  vs_has_cleanup                         | True
+  vs_has_stop_background_top             | False
+  open_camera_sig                        | () -> 'bool'
+  open_camera_return                     | True
+  open_camera_seconds                    | 1.93
+  start_background_detection             | OK
+  callback_register                      | OK
+  callback_detection_in_6s               | 46
+  callback_frame_in_6s                   | 46
+  detection_dict_keys                    | 14
+  remove_callback_sig                    | remove_callback("detection", cb) 可用
+  get_latest_results_type                | dict
+  get_latest_results_keys                | ['apriltag', 'black_line', 'color_block', 'color_recognition', 'face_recognition', 'facial_expression', 'image_classification', 'object_detection', 'object_recognition', 'people_counter', 'plate_recognition', 'pose_detection', 'qr_code', 'timestamp']
+  color_recognition_image_info           | {'width': 640, 'height': 480, 'channels': 3}
+  color_recognition_regions_count        | 2
+  color_block_detection_params           | {'target_color': '红色', 'min_width': 30, 'min_height': 30, 'similarity_threshold': 0.5}
+  get_next_result_type                   | dict
+  get_all_pending_results_type           | list len=9
+  result_accessor_method_count           | 86
+  ra_has_get_object_name                 | False
+  ra_has_get_object_recognition_count    | False
+  get_face_count_repr                    | 0 (type=int)
+  get_face_id_repr                       | None (type=NoneType)
+  get_face_name_repr                     | '' (type=str)
+  get_face_confidence_repr               | 0.0 (type=float)
+  get_face_position_repr                 | (0, 0, 0, 0) (type=tuple)
+  has_face_id_return                     | 异常: TypeError: Argument 'target_id' has incorrect type (expected int, got str)
+  get_largest_color_block_index          | -1
+  get_color_block_center(0)              | (0, 0)
+  esp32_constants                        | ['ADC_IO_01', 'ADC_IO_02', 'ADC_IO_03', 'ADC_IO_04', 'ADC_IO_05', 'ADC_IO_06', 'ADC_IO_07', 'ADC_IO_08', 'GPIO_BUTTON', 'GPIO_IO_01', 'GPIO_IO_02', 'GPIO_IO_03', 'GPIO_IO_04', 'GPIO_IO_05', 'GPIO_IO_06', 'GPIO_IO_07', 'GPIO_IO_08']
+  esp32_gpio_count                       | 8
+  esp32_adc_count                        | 8
+  esp32_gpio_names                       | ['GPIO_IO_01', 'GPIO_IO_02', 'GPIO_IO_03', 'GPIO_IO_04', 'GPIO_IO_05', 'GPIO_IO_06', 'GPIO_IO_07', 'GPIO_IO_08']
+  esp32_adc_names                        | ['ADC_IO_01', 'ADC_IO_02', 'ADC_IO_03', 'ADC_IO_04', 'ADC_IO_05', 'ADC_IO_06', 'ADC_IO_07', 'ADC_IO_08']
+  esp32_gpio_button                      | ['GPIO_BUTTON']
+  esp32_method_count                     | 56
+  esp32_has_digitalRead                  | True
+  esp32_has_digitalWrite                 | True
+  esp32_has_analogRead                   | True
+  esp32_has_analogWrite                  | True
+  esp32_has_servo                        | True
+  esp32_has_ws2812Init                   | True
+  esp32_has_ws2812Write                  | True
+  esp32_has_dhtReadTemperature           | True
+  esp32_has_ds18b20Read                  | True
+  esp32_has_ultrasonicRead               | True
+  esp32_has_bmp280ReadPress              | True
+  esp32_has_i2c_init                     | True
+  esp32_has_uart_init                    | True
+  esp32_has_digitalReadCallback          | True
+  esp32_has_analogReadCallback           | True
+  esp32_board_start                      | True
+  line_sensor_module_members             | ['ESP32', 'I2C_PROXY', 'Line_Sensor']
+  line_sensor_class                      | Line_Sensor
+  line_sensor_methods                    | ['Lineheight', 'linecalibrate', 'readline', 'readline_all', 'readlinead']
+  audio_recorder_members                 | ['AudioRecorder', 'argparse', 'datetime', 'main', 'np', 'os', 'sd', 'sf', 'sys', 'threading', 'time']
+  audio_recorder_methods                 | ['record_fixed_duration', 'save_audio', 'set_output_dir', 'start_recording', 'stop_recording']
+  audio_recorder_has_record_fixed_duration | True
+  audio_recorder_has_start               | False
+  audio_recorder_has_stop                | False
+  audio_recorder_has_save_audio          | True
+  audio_recorder_has_set_sample_rate     | False
+  audio_recorder_has_pause               | False
+  audio_recorder_has_is_recording        | False
+  audio_recorder_default_sample_rate     | 16000
+  audio_recorder_default_channels        | 1
+  audio_recorder_default_dtype           | float32
+  audio_record_result                    | record_fixed_duration(2, filename=...) -> 返回类型=NoneType
+  audio_record_wav_exists                | False
+  audio_record_wav_size                  | 0
+  audio_player_members                   | ['AudioPlayer', 'BytesIO', 'get_global_player', 'play_audio', 'play_wav_audio', 'pyaudio', 'pygame', 'wave']
+  audio_player_methods                   | ['cleanup', 'play_audio', 'play_file', 'play_with_pyaudio', 'play_with_pygame']
+  audio_player_has_play                  | False
+  audio_player_has_play_file             | True
+  audio_player_has_play_audio            | True
+  audio_player_has_pause                 | False
+  audio_player_has_resume                | False
+  audio_player_has_stop                  | False
+  audio_player_has_set_volume            | False
+  audio_player_has_seek                  | False
+  text_recognition_module                | OK（已在 cv2/pygame/V3 之前成功导入）
+  text_recognition_module_members        | ['DET_INPUT_SHAPE', 'PPOCR_AVAILABLE', 'TextRecognizer', 'TextSystem', 'cv2', 'extract_text_from_image', 'np', 'os', 'recognize_image_text', 'sys']
+  text_recognizer_methods                | ['cleanup', 'initialize', 'recognize_text']
+  text_recognizer_has_set_language       | False
+  text_recognizer_has_set_region         | False
+  text_recognizer_has_angle_classify     | False
+  text_recognizer_recognize_text_sig     | (self, image_input, confidence_threshold=0.5)
+  text_recognizer_instantiate            | OK
+  voice_api_members                      | ['API_BASE_URL', 'API_VOICE_URL', 'TOKEN_FILE_PATH', 'VoiceAPI', 'base64', 'json', 'os', 'requests', 'time']
+  voice_api_methods                      | ['get_token', 'llm_chat', 'llm_chat_znbw_2025', 'translate_english', 'tts_synthesize', 'voice_recognition']
+  voice_api_has_llm_chat                 | True
+  voice_api_has_llm_chat_znbw_2025       | True
+  voice_api_has_voice_recognition        | True
+  voice_api_has_tts_synthesize           | True
+  voice_api_has_get_token                | True
+  voice_api_has_refresh_token            | False
+  voice_api_API_BASE_URL                 | http://www.haohaodada.com/project/voiceAI/ApiZNBW.php
+  voice_api_API_VOICE_URL                | http://www.haohaodada.com/project/voiceAI/ApiXXKJ.php
+  voice_api_TOKEN_FILE_PATH              | /tmp/.system_cache/config.json
+  voice_api_token_file_exists            | False
+
+====================================================================
+探测结束: 2026-10-09 08:47:12
+日志文件（请把这个文件发回）: /home/cxdz/jupyter/user/logs/探测_待定项核对_20261009_084459.log
+====================================================================

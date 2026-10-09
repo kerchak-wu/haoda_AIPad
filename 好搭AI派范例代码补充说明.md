@@ -36,7 +36,7 @@ vision_system.detection_config.color_recognition_regions.append((390, 100, 200, 
 
 范例直接 `print(get_color_recognition_rgb(0))`，当坐标超范围 color 为 None 时，rgb 也是 None，打印会乱。应先检查 color 是否为 None，为 None 时跳过 rgb 读取。
 
-#### C. 颜色识别范例 L1013 有笔误
+#### C. 颜色识别范例 L1003 有笔误
 
 ```python
 print((vision_system.result_accessor.get_color_recognition_color(1)))  # 应该是 _name(1) 或 _rgb(1)
@@ -51,7 +51,7 @@ print((vision_system.result_accessor.get_color_recognition_color(1)))  # 应该�
 #### D. 所有范例代码缺少 Rockchip 平台兼容性补丁
 
 - **缺少 `LIBGL_ALWAYS_SOFTWARE=1`**：范例顶部没有写 `import os; os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'`。如果程序用了 pygame/cv2，在 Rockchip RK3588S 平台上可能触发 Mali GPU 驱动段错误。
-- **使用 `pygame.init()` 全初始化**：部分 pygame 相关范例（如人脸学习、物体学习）用了 `pygame.init()`，应改为 `pygame.display.init()` + `pygame.font.init()`，避免音频子系统异常。
+- **使用 `pygame.init()` 全初始化**：部分 pygame 相关范例（如人脸学习、物体学习）用了 `pygame.init()`。**这不是错误写法**——`pygame.init()` 不会抛异常（失败会收进返回值），但它会连带初始化 mixer/joystick/CDROM；**建议**改为 `pygame.display.init()` + `pygame.font.init()` 分段初始化，需要音频时再加 `try: pygame.mixer.init() / except` 并确保全生命周期只 init 一次。真正**必须**分段的是"**摄像头 + 音频**"组合（详见《视觉系统摄像头调用参考方案》7.1）。（2026-09-12 校准：原文"避免音频子系统异常"属断言式表述，已改为分档规则）
 - **GPIO_BUTTON=0 相关代码保留**：范例中的板载按键（GPIO_IO_00）读取代码，实际硬件没有对应实体按键，可删除相关代码。
 
 ---
@@ -79,7 +79,7 @@ create_vs(enable_basic=False, enable_advanced=False)
 > 以下内容原位于《好搭AI派范例代码.md》顶部，2026-08-14 按用户指示从原文件中删除并迁移至此完整保存，供以后项目开发参考。原范例代码文件保持纯净，不再包含任何补充/提醒内容。
 > 本节为原文照录，下方第二章为基于三份干净日志的复核结果，第三章为最新探测发现。
 
-**📌 2026-08-14 补充更新**：本文档的范例是早期参考资料，**实际项目开发请优先参照《系统环境与非视觉官方库探测报告_v1.md》** 中反射枚举得到的**完整 ESP32 类 50+ 方法 + GPIO 常量清单**，以及 voice_api / AudioRecorder / AudioPlayer / TextRecognizer / Line_Sensor 的全部签名。
+**📌 2026-08-14 补充更新**：本文档的范例是早期参考资料，**实际项目开发请优先参照《系统环境与非视觉官方库探测报告.md》** 中反射枚举得到的**完整 ESP32 类 50+ 方法 + GPIO 常量清单**，以及 voice_api / AudioRecorder / AudioPlayer / TextRecognizer / Line_Sensor 的全部签名。
 
 **⚠️ 关键差异提醒**（基于 2026-08-14 探测结果）：
 - **USB 摄像头设备号**：范例代码中写的视频设备号不固定，好搭AI派实测可能出现在 **/dev/video40、/dev/video41、/dev/video42**（uvcvideo 驱动），video0~39 是 MIPI/ISP 内部节点。**不能只检测 /dev/video40**，应按 40→41→42 顺序逐个尝试 + `gray.mean()` 帧有效性验证
@@ -231,7 +231,7 @@ import os
 _log_dir = 'logs'
 if not os.path.exists(_log_dir):
     os.makedirs(_log_dir)
-LOG_FILE = '%s/<程序名>_%s.txt' % (_log_dir, datetime.datetime.now().strftime('%Y%m%d'))
+LOG_FILE = '%s/<程序名>_%s.log' % (_log_dir, datetime.datetime.now().strftime('%Y%m%d'))
 ```
 
 日志文件应使用**追加模式**（`'a'`）打开，同一程序多次运行追加到当天日志：
@@ -248,7 +248,7 @@ _log_fp = open(LOG_FILE, 'a', encoding='utf-8')
 | 5.01 | 标签识别 | ✅ 正确 | 需补 LIBGL + pygame 分段初始化 | 可用，需补补丁 |
 | 5.02 | 标签识别-超市自助收银 | ✅ 正确 | 同上 | 可用，需补补丁 |
 | 5.03 | 二维码识别 | ✅ 正确 | 同上；qr_code 回调返回结构待验证 | 可用，需补补丁 |
-| 5.04 | 颜色识别 | ⚠️ 坐标错误 | 区域坐标用了 1280×720 空间；L1013 笔误 | ❌ 需修正坐标后使用 |
+| 5.04 | 颜色识别 | ⚠️ 坐标错误 | 区域坐标用了 1280×720 空间；L1003 笔误 | ❌ 需修正坐标后使用 |
 | 5.05 | 颜色识别-自动分拣 | ⚠️ 坐标错误 | 同上 | ❌ 需修正坐标后使用 |
 | 5.06 | 色块识别 | ✅ 正确 | center 始终返回 (0,0) | 可用，需补补丁+注意 center bug |
 | 5.07 | 黑线检测 | ✅ 正确 | black_line 返回结构待验证 | 可用，需补补丁 |
@@ -261,6 +261,8 @@ _log_fp = open(LOG_FILE, 'a', encoding='utf-8')
 | 5.17 | 目标检测 | ✅ 正确 | 同上 | 可用，需补补丁 |
 | 5.18 | 姿态检测 | ✅ 正确 | 同上 | 可用，需补补丁 |
 | 5.19-21 | 文字识别 | ✅ 正确 | text_recognition 导入顺序需注意 | 可用，需补补丁+注意导入顺序 |
+
+> **注**：5.08/5.09（人脸学习）与 5.11（物体识别学习）**不落 Tier-2 JSON**（`face_records.json` / `object_records.json`），属**功能缺失**而非补丁问题——正式项目需按 `人脸学习.py` / `物体学习.py` 补上两层存储映射。
 
 ---
 
