@@ -14,6 +14,7 @@
 - Python version is locked to **3.8.10** (no other versions available on device). Any new dependency must support Python 3.8
 - cv2 version is **5.0.0** (not 4.x) — the installed distribution is **`opencv-contrib-python 5.0.0.93`** (`xfeatures2d`/`face`/`ximgproc`/`aruco` all available, i.e. a contrib feature set). **Do NOT install, uninstall, or replace the existing OpenCV distribution** (a swap risks breaking these features / ABI). Verify API compatibility when using newer OpenCV features; fall back to v4-style calls if an error occurs
 - AudioPlayer (official lib) has NO pause/resume/stop/volume control; if playback control is needed, use pygame.mixer or pyaudio directly instead
+- **SSH 登录口径（2026-10-10 用户确定）**：用户名固定 `cxdz`；设备 **IP 不固定**，每次登录前向用户确认（也可在设备主控屏右上角查看当前 IP）；**密码不写入任何文档**，登录前向用户索取。命令模板 `ssh cxdz@<设备IP>`。文档中出现的 `192.168.0.109` 仅为历史记录，不作现值使用
 - VoiceAPI token auto-refresh does NOT exist; if HTTP 401 occurs, re-call `VoiceAPI.get_token(user, password)` instead of looking for `refresh_token`
 - Use `pygame-ce` (Community Edition) instead of original `pygame` — they are mutually exclusive and cannot be installed simultaneously
 - `pygame-ce` version must be fixed at **2.5.2** (newer versions ≥2.5.4 drop Python 3.8 support)

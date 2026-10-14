@@ -6,7 +6,8 @@
 
 运行方式（二选一）：
   1) 把本文件复制到设备 /home/cxdz/jupyter/user/ 下，在程序管理器里点「运行」
-  2) SSH：
+  2) SSH（用户名固定 cxdz；IP 不固定，登录前向用户确认；密码登录前向用户索取）：
+     ssh cxdz@<设备IP>
      cd /home/cxdz/jupyter/user && PYTHONPATH=/home/cxdz/jupyter/lib python3 探测_待定项核对.py
 
 输出：
