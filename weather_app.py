@@ -4,6 +4,7 @@
 - 使用 Open-Meteo 免费 API (无需注册和 API Key)
 - 固定窗口 1920×1080
 - 在 images/1.jpg 背景图上叠加天气滤镜和粒子特效
+- 天气图标来自 icons/ 文件夹（和风天气图标，PNG 透明底），缺失时自动回退为手绘图标
 - 展示国内主要城市的实时天气、详细数据及未来5日预报
 """
 
@@ -22,6 +23,7 @@ from datetime import datetime
 # ---------- 配置 ----------
 WIDTH, HEIGHT = 1920, 1080
 BG_IMAGE = os.path.join("images", "1.jpg")
+ICON_DIR = "icons"
 
 # 颜色
 WHITE = (255, 255, 255)
@@ -40,6 +42,19 @@ WEATHER_THUNDER = "雷阵雨"
 WEATHER_LIGHT_SNOW = "小雪"
 WEATHER_HEAVY_SNOW = "大雪"
 WEATHER_FOG = "雾"
+
+# 各天气对应的图标文件（icons/ 文件夹内 PNG 透明底，建议 256×256）
+WEATHER_ICONS = {
+    WEATHER_SUNNY:       "weather_sunny.png",
+    WEATHER_CLOUDY:      "weather_cloudy.png",
+    WEATHER_OVERCAST:    "weather_overcast.png",
+    WEATHER_LIGHT_RAIN:  "weather_light_rain.png",
+    WEATHER_HEAVY_RAIN:  "weather_heavy_rain.png",
+    WEATHER_THUNDER:     "weather_thunder.png",
+    WEATHER_LIGHT_SNOW:  "weather_light_snow.png",
+    WEATHER_HEAVY_SNOW:  "weather_heavy_snow.png",
+    WEATHER_FOG:         "weather_fog.png",
+}
 
 # 各天气对应的渐变背景色（顶部, 底部）
 WEATHER_COLORS = {
@@ -351,7 +366,42 @@ def draw_fog_icon(surface, center, size, color=(220, 220, 235)):
         offset = (i % 2) * 15
         pygame.draw.line(surface, color, (cx - size + offset, y), (cx + size - offset, y), 8)
 
+
+# ---------- 天气图标：icons/ 文件夹加载 + 缓存 ----------
+_icon_masters = {}  # 原始 256px 图标（convert_alpha 后）
+_icon_cache = {}    # 缩放缓存 {(天气, 边长): Surface}
+
+def load_weather_icons():
+    """启动时一次性加载 icons/ 下的天气图标，必须在 display.set_mode 之后调用"""
+    for weather, fname in WEATHER_ICONS.items():
+        path = os.path.join(ICON_DIR, fname)
+        if not os.path.exists(path):
+            print(f"缺少天气图标(将用手绘代替): {path}")
+            continue
+        try:
+            _icon_masters[weather] = pygame.image.load(path).convert_alpha()
+        except Exception as e:
+            print(f"天气图标加载失败 ({fname}):", e)
+
+def get_weather_icon(weather, box):
+    """获取指定边长的图标 Surface，无图标返回 None"""
+    key = (weather, box)
+    if key not in _icon_cache:
+        master = _icon_masters.get(weather)
+        if master is None:
+            return None
+        _icon_cache[key] = pygame.transform.smoothscale(master, (box, box))
+    return _icon_cache[key]
+
 def draw_weather_icon(surface, weather, center, size=80):
+    box = int(size * 2)
+    icon = get_weather_icon(weather, box)
+    if icon is not None:
+        surface.blit(icon, icon.get_rect(center=center))
+        return
+    _draw_vector_weather_icon(surface, weather, center, size)  # 兜底：手绘
+
+def _draw_vector_weather_icon(surface, weather, center, size=80):
     if weather == WEATHER_SUNNY:
         draw_sunny_icon(surface, center, size)
     elif weather == WEATHER_CLOUDY:
@@ -508,6 +558,9 @@ def main():
             background_img = pygame.transform.smoothscale(bg, (WIDTH, HEIGHT)).convert()
         except Exception as e:
             print(f"背景图加载失败: {e}")
+
+    # 加载天气图标（icons/ 文件夹，需在 set_mode 之后调用）
+    load_weather_icons()
 
     # 天气半透明滤镜缓存
     weather_overlay_cache = {}

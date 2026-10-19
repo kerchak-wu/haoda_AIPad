@@ -1,6 +1,6 @@
 # 好搭AI派基本情况
 
-> 整理方式：SSH 登录设备（192.168.0.109，用户 cxdz）实地勘察
+> 整理方式：SSH 登录设备实地勘察（用户名固定 `cxdz`；192.168.0.109 仅为整理当次的 IP，**设备 IP 不固定**，每次登录前需向用户确认）
 > 整理时间：2026-09-12
 
 ---
@@ -123,14 +123,14 @@ ESP32 固件         =  执行者（真正驱动传感器和执行器）
 
 ### 5. 其他常驻服务
 
-- **Jupyter Notebook**：`jupyter-notebook --no-browser --allow-root --port=8888`（开机自启，可通过浏览器访问 192.168.0.109:8888 写程序）
+- **Jupyter Notebook**：`jupyter-notebook --no-browser --allow-root --port=8888`（开机自启，可通过浏览器访问 `http://<设备IP>:8888` 写程序；IP 不固定，以当次为准）
 
 ---
 
 ## 四、使用要点
 
 1. **写程序放哪**：丢到 `/home/cxdz/jupyter/user/` 下（`.py` 文件），在管理器里按 F7 刷新即可看到。
-2. **连接**：SSH `ssh cxdz@192.168.0.109`；Jupyter `http://192.168.0.109:8888`。
+2. **连接**：SSH `ssh cxdz@<设备IP>`（用户名固定 `cxdz`；IP 不固定，登录前向用户确认，也可在设备主控屏右上角查看当前 IP；密码不记录在文档中，登录前向用户索取）；Jupyter `http://<设备IP>:8888`。
 3. **硬件操作固定写法**：
    ```python
    from ESP32 import *

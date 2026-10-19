@@ -47,7 +47,7 @@
 | 系统 | Ubuntu 20.04.6 LTS，aarch64，主机名 `haoda-pi` | 基本情况 |
 | 板载屏 | 8 寸 **1200×1920 竖屏**（DSI-1） | project_memory |
 | 扩展板 | ESP32（ESP32-S3，RISC-V，4 MB Flash） | 探测报告 / 硬件规格日志 |
-| 网络 | SSH `cxdz@192.168.0.109`；Jupyter `http://192.168.0.109:8888` | 基本情况 |
+| 网络 | SSH `cxdz@<设备IP>`（用户名固定 `cxdz`；IP 不固定，登录前向用户确认；密码登录前向用户索取）；Jupyter `http://<设备IP>:8888` | 基本情况 |
 
 ### 1.2 软件版本红线（不许动）
 
@@ -667,7 +667,7 @@ LOG_FILE = os.path.join(_log_dir, '<程序名>_%s.log' % datetime.datetime.now()
 > 结果在 `logs/探测_待定项核对_YYYYMMDD_HHMMSS.log`，末尾有 `N. 结论速览` 的 `KEY | VALUE` 清单。
 > **目测项（IO 数量、ADC 路数、开关、充电口、插口、屏幕、WS2812、巡线、键鼠、网络、USB 下载、电源键、管理器提示）已在 §1.4 由你确认完毕**，无需再测。
 
-设备上执行（SSH `cxdz@192.168.0.109`，密码/DISPLAY 按现场）：
+设备上执行（SSH `cxdz@<设备IP>`，用户名固定 `cxdz`；IP/密码登录前向用户确认，DISPLAY 按现场）：
 
 ```bash
 # 1) 串口真相：ESP32 双路径（ttyS9 内部 UART / ttyCH341USB*）均可打开

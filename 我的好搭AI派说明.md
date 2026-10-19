@@ -133,6 +133,15 @@
   - work.png
   - zoom-in.png
   - zoom-out.png
+  - weather_sunny.png（晴）
+  - weather_cloudy.png（多云）
+  - weather_overcast.png（阴）
+  - weather_light_rain.png（小雨）
+  - weather_heavy_rain.png（大雨）
+  - weather_thunder.png（雷阵雨）
+  - weather_light_snow.png（小雪）
+  - weather_heavy_snow.png（大雪）
+  - weather_fog.png（雾）
 
 ## 安装库 mediapipe 手势、姿态识别
 
