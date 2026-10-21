@@ -222,7 +222,7 @@ finally:
     print('程序结束')
 ```
 
-## 文件清单（均与 SKILL.md 位于同一项目文件夹内）
+## 文件清单（均位于工作空间根目录，即当前项目根目录）
 
 ### 必读文件（每次开发前读对应章节）
 - `project_memory.md` — 硬约束总表（Hard Constraints + Engineering Conventions + Lessons Learned）

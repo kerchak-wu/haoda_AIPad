@@ -16,3 +16,7 @@ Desktop.ini
 
 # 编辑器
 .idea/
+
+# 技能文件
+.trae
+.codebuddy
