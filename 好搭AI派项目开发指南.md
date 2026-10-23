@@ -341,7 +341,7 @@ vs._init_detectors()
 # vs.detection_config.color_recognition_regions.append((300, 200, 400, 400))  # x+w=700>640 ✗
 
 # Step 6  启动后台检测
-vs.threaded_system.start_background_detection(show_preview=True)
+vs.threaded_system.start_background_detection(show_preview=False)   # False=不弹 SDK 自带预览窗（True 会弹 OpenCV 预览窗、需按 q 退出）；正式 pygame 项目一律 False 画面自绘，无 UI 调试脚本才用 True
 
 # Step 7  主循环里每次读结果前必须刷新
 while True:
@@ -428,7 +428,7 @@ ts.remove_callback(...)         # 移除
 13. **`cv2.findContours` 在 5.0 返回 2 值**（contours, hierarchy）。
 14. 人脸学习支持 `learn_new_face(frame=None)`（返回 **dict**，含 `success`/`face_id`/`message`）；物体学习支持 `add_object_recognition_class(frame=None, class_name=None)` / `add_object_recognition_sample(frame=None, class_name=None)`——**参数名是 `class_name`，不是 `name`**。
 15. **回调实测频率 ≈8 次/秒**（实测 6 秒 46 次；文档别处的 ~15 / ~10 次/秒作废，以 8 为准）；detection dict 共 **14 个 key**（**13 个算法字段 + `timestamp`**，不是"14 个算法字段"）。
-16. **`show_preview` 取值**：文档里 `True`/`False` 两种都出现过，未明确语义——传 `False` 时画面由你自己 pygame 绘制（推荐），传 `True` 时会额外弹预览窗口。以实测为准，先按 `False` 写。
+16. **`show_preview` 取值（已定案，2026-10-23 按 A1+A2 收口）**：**按项目需求决定，默认 `False`**。`False` 不弹任何窗口，画面由程序自己取帧用 pygame 绘制；`True` 会弹 SDK 自带 OpenCV 预览窗口（需在该窗口按 q 退出），仅当需求明确要求独立预览/调试画面、或程序无自绘 UI 时使用（A2 依据：人脸识别灯效 / 物体学习 / 物体识别播报 / 人数实时统计 / 姿态检测（自带算法）/ 人脸表情识别器（自带算法）6 个正式项目全部传 `False`；API 分析报告 §716 同口径）。对检测结果、回调频率无影响，仅影响是否弹预览窗
 17. **清空数据库的三种写法并存**：`vs.cleanup()`（范例）/ `vs.threaded_system.stop_background_detection()` + `vs.close_camera()`（SKILL 模板）——两者都能释放资源，新代码用后者并保证可重复调用。
 
 ---

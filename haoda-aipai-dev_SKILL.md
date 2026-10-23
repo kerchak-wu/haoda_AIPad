@@ -3,7 +3,7 @@ name: "haoda-aipai-dev"
 description: "好搭AI派项目开发助手，强制执行设备硬约束（Python 3.8.10 / cv2 5.0.0 / pygame-ce 2.5.2 / V3 SDK）和 7 步开发流程。当用户请求开发好搭AI派项目、修改现有代码、遇到设备相关错误时调用。"
 ---
 
-> **同步约定**：本文件与 `haoda-aipai-dev_SKILL.md` 内容必须**逐字一致**（两份互为副本，`.trae` 下的副本供 Trae 自动加载）。
+> **同步约定**：本 Skill 共三份副本——根目录 `haoda-aipai-dev_SKILL.md`、`.trae/skills/haoda-aipai-dev/SKILL.md`（供 Trae 自动加载）、`.codebuddy/skills/haoda-aipai-dev/SKILL.md`（供 CodeBuddy 自动加载）——内容必须**逐字一致**，任何改动须三处同步。
 
 # 好搭AI派项目开发助手
 
@@ -31,7 +31,7 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
    - `vs.detection_config.enable_XXX = True`（按需开启算法）
    - `vs._init_detectors()`（加载 RKNN 模型，**漏调会导致检测结果为空**）
    - 若用 color_recognition：`vs.detection_config.color_recognition_regions.append((x,y,w,h))`（**640×480 坐标，不是 1280×720**）
-   - `vs.threaded_system.start_background_detection(show_preview=True)`
+   - `vs.threaded_system.start_background_detection(show_preview=False)`（**按项目需求决定，默认 False**：False 不弹 SDK 自带 OpenCV 预览窗口，画面由程序自绘；True 会额外弹预览窗且需在该窗口按 q 退出，与 pygame UI 并存时是两个窗口——仅当需求明确要求独立预览/调试画面、或程序无自绘 UI 时才用 True）
    - `vs.result_accessor.refresh_results()`（读取结果前必须调用）
 8. **日志必须写 `logs/` 文件夹**，追加模式 `'a'`，块缓冲，文件名格式 `<程序名>_YYYYMMDD.log`。禁止在项目根目录散落 `.txt`/`.log` 文件
    - 标准写法：`_log_dir='logs'; os.makedirs(_log_dir, exist_ok=True); _LOG_FILE=os.path.join(_log_dir, '<程序名>_%s.log' % datetime.datetime.now().strftime('%Y%m%d'))`
@@ -47,11 +47,24 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 14. **无板载按键**——`GPIO_BUTTON` / `GPIO_IO_00` 代码一律删除，代码中不得依赖实体按键
 15. **窗口口径**：默认 1920×1080 横屏窗口模式（非全屏），上限 1920×1280；不采用原生 1200×1920 竖屏，上下黑边可接受
 
+## 硬件速查（已实机确认，2026-09-12 / 2026-10-09）
+
+- 主控 RK3588S（4×A76 + 4×A55，Mali-G610，NPU 6 TOPS），内存 7.7 GiB **无 Swap**，Ubuntu 20.04.6 aarch64
+- **右下角两位开关：左 = 启用外设（ESP32 扩展板），右 = 充电**；外设不工作时先拨到左侧
+- **充电口是独立 Type-C**，与 USB 数据口不是同一个；**USB 下载程序不可用**，一律走 IP 网络连接
+- 扩展板 **2 个 USB 母口**：可插 USB 摄像头（换口会变 `/dev/video4x` 节点号），也可插 USB 键盘/鼠标
+- ESP32 数字 IO **8 个**（`GPIO_IO_01~08`）；ADC **8 路**（`ADC_IO_01~08`，8 个接口都能作 ADC）；**无板载按键**
+- WS2812 默认 **10 灯**（IO1~IO8 任选一口）；巡线模块外接 **I²C 4 线、4 探头**
+- 自动关机阈值 **10%**，长按电源键可重启；WiFi 有外网（语音AI / 天气 / 百度云 / LLM 均可用）
+
 ## 开发流程（7 步，必须按序执行）
 
 ### Step 1：读约束文件
 读 `project_memory.md` 的 Hard Constraints + Engineering Conventions + Lessons Learned 三节。
 确认新项目不会与任何硬约束冲突。
+
+**文档冲突时的权威优先级**（详见 `好搭AI派项目开发指南.md` §0）：
+A0 用户裁决 / 设备实测日志 > A1 两份基线报告（`系统环境与非视觉官方库探测报告.md`、`camera_vision_system_v3_API分析报告.md`）> A2 现有可运行代码（实测跑通的代码胜，结论回写基线）> A3 `project_memory.md` + 本 SKILL（默认约定 + 索引）> A4 教学/从属文档（规范 / 摄像头参考方案 / 范例代码 / 学习手册 / 基本情况）。
 
 ### Step 2：选定摄像头模式
 读 `视觉系统摄像头调用参考方案.md` 第 2 章（三大模式总览）+ 第 5 章（黄金法则决策树）。
@@ -59,6 +72,9 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 - 模式 A：纯 cv2 独占（第三方算法：MediaPipe / dt-apriltags / 百度云）
 - 模式 B：混合模式（V3 官方算法 + 离线录入，⭐ 推荐绝大多数场景）
 - 模式 C：V3 视觉系统全托管（实时追踪 + 硬件联动，最高帧率）
+
+> **帧采集器误判判据**：只有当 `enable_basic=False, enable_advanced=False` **并且**没有手动 `enable_XXX = True`、**也没有**调用 `_init_detectors()` 时，才说明"SDK 只被当作帧采集器"→ 直接改纯 cv2 模式。标准 7 步流程本身就是这个组合 + 手动开算法，是真在跑检测的，别误判。
+> 模式 A/B 打开摄像头的参考实现（`40→41→42` + 逐节点帧验证，照抄即可）见 `好搭AI派项目开发指南.md` §5.3。
 
 ### Step 3：确认算法 API
 读 `camera_vision_system_v3_API分析报告.md`：
@@ -73,11 +89,13 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 读 `系统环境与非视觉官方库探测报告.md`：
 - 第 2.5 节 三项版本决策（Python/pygame/opencv 不动）
 - 涉及的库章节：
-  - **ESP32**：56 个方法完整签名，8 个异步 Callback API 优先于阻塞读；串口**双路径**——内部 UART `/dev/ttyS9` 与 CH341 USB `/dev/ttyCH341USB0` / `/dev/ttyCH341USB1` 均存在且可打开，代码一律 `board.start()` 自动探测、**不硬编码节点**（也不是 `/dev/ttyUSB*`，本机无 ttyUSB*）
-  - **voice_api**：两个 LLM 后端 `llm_chat(text)` / `llm_chat_znbw_2025(text)`（优先用后者）；token 无自动刷新，401 时重调 `get_token(user, password)`
-  - **AudioPlayer**：无 pause/resume/stop/音量控制，需控制时改用 pygame.mixer
+  - **ESP32**：56 个方法完整签名，8 个异步 Callback API 优先于阻塞读；串口**双路径**——内部 UART `/dev/ttyS9` 与 CH341 USB `/dev/ttyCH341USB0` / `/dev/ttyCH341USB1` 均存在且可打开，代码一律 `board.start()` 自动探测、**不硬编码节点**（也不是 `/dev/ttyUSB*`，本机无 ttyUSB*）；隐藏能力：I²C 6 方法 / UART 5 方法 / 数据打包工具（`char2byte` 等）；WS2812 默认 10 灯（IO1~IO8 任选，`ws2812Init(pin, 10)`）
+  - **voice_api**：两个 LLM 后端 `llm_chat(text)` / `llm_chat_znbw_2025(text)`（优先用后者）；token 无自动刷新，401 时重调 `get_token(user, password)`；未登录时 LLM 方法返回 `None`（不抛异常），要判空
+  - **AudioPlayer**：仅 `play_file(file_path, prefer_pygame=True)` / `play_audio(audio_bytes, prefer_pygame=True)` / `play_with_pygame` / `play_with_pyaudio` / `cleanup` 共 5 个公开方法（**没有 `play()`**，用前 `dir()` 确认）；无 pause/resume/stop/音量控制，需控制时改用 pygame.mixer
   - **AudioRecorder**：默认 16000Hz / 1ch / float32，与 VoiceAPI.voice_recognition() 精准匹配，无需重采样
   - **text_recognition.TextRecognizer**：仅 `recognize_text(image_input, confidence_threshold=0.5)`，无 set_language/set_region/angle_classify
+  - **Line_Sensor（巡线）**：外接模块，I²C 固定地址 82、4 探头 4 线；`readline(li)` / `readline_all(li)` / `linecalibrate()` 等（寄存器枚举见探测报告第 4 章）
+  - **百度云视觉 API**：参数按需求显式指定，无特殊要求时以已验证项目 `人脸表情识别（云算法）.py` 口径为准（`IMWRITE_JPEG_QUALITY 85`、`API_INTERVAL 1.5s`）；旧口径「160×120 / 质量 60 / 5 秒间隔」已作废
 - 第 9 章 15 条风险表（特别注意 13/14/15 三条版本红线）
 
 ### Step 5：选骨架项目
@@ -96,7 +114,7 @@ description: "好搭AI派项目开发助手，强制执行设备硬约束（Pyth
 1. **项目功能需求**：一句话描述 + 输入清单 + 输出清单 + 交互流程 + 触发模式
 2. **硬件外设**：ESP32 传感器清单 + 执行器清单 + 引脚分配表 + 非原厂外设协议
 3. **视觉算法**：算法类型多选（颜色/色块/二维码/AprilTag/人脸学习/人脸识别/表情/物体学习/物体识别/人流计数/YOLOv8/姿态/OCR/巡线/车牌/ResNet/MediaPipe）+ 摄像头模式 + 是否复用现有映射
-4. **UI 设计**：分辨率（默认 1920×1080）+ 配色（用户偏好浅色/多色文字/不用黑色/天空蓝背景）+ 布局 + 字体（先读「我的好搭AI派说明.md」『已上传好搭AI派字体文件』章节，从其中列出的**设备绝对路径**和文件名中选）+ 图标（先读「我的好搭AI派说明.md」『已上传好搭AI派图标文件（icons 文件夹）』章节，从其中列出的文件名中选，使用时为相对路径 `icons/文件名.png`，与运行程序同目录）+ 图片（图片在 `images/` 文件夹内，相对路径 `images/文件名.jpg`，与运行程序同目录；图片文件名不在「我的好搭AI派说明.md」中，只能**默认用 `images/1.jpg`** 或**在项目开发需求中提供具体文件名** 或**询问用户**；需求里没提图片时默认回退方案：UI 标题/按钮等不贴图用纯色绘制 + 背景图优先 `images/1.jpg`，不存在用渐变填充）+ 控件清单
+4. **UI 设计**：分辨率（默认 1920×1080）+ 配色（用户偏好浅色/多色文字/不用黑色/天空蓝背景）+ 布局 + 字体（先读「我的好搭AI派说明.md」『已上传好搭AI派字体文件』章节，从其中列出的**设备绝对路径**和文件名中选）+ 图标（先读「我的好搭AI派说明.md」『已上传好搭AI派图标文件（icons 文件夹）』章节，从其中列出的文件名中选，使用时为相对路径 `icons/文件名.png`，与运行程序同目录）+ 图片（图片在 `images/` 文件夹内，相对路径 `images/文件名.jpg`，与运行程序同目录；图片文件名不在「我的好搭AI派说明.md」中，只能**默认用 `images/1.jpg`** 或**在项目开发需求中提供具体文件名** 或**询问用户**；需求里没提图片时默认回退方案：UI 标题/按钮等不贴图用纯色绘制 + 背景图优先 `images/1.jpg`，不存在用渐变填充）+ 控件清单；缩放用 `pygame.transform.scale`（最近邻），不要 `smoothscale`（双线性在 ARM 上很慢）
 5. **联网需求**：离线/外网 + 协议细节（HTTP/MQTT/WebSocket）+ VoiceAPI 用量（TTS/ASR/LLM）
 6. **数据持久化**：存储方式 + 生命周期 + 是否联动 V3 学习库
 7. **性能约束**：帧率（实时≥15FPS / 检测型 5-10FPS）+ 延迟 + 资源预算 + 日志要求 + 异常策略
@@ -197,7 +215,7 @@ vs._init_detectors()  # 必须调用，加载 RKNN 模型
 # 颜色识别区域（必须用 640×480 坐标）
 # vs.detection_config.color_recognition_regions.append((10, 10, 200, 200))
 
-vs.threaded_system.start_background_detection(show_preview=True)
+vs.threaded_system.start_background_detection(show_preview=False)  # 默认 False：不弹 SDK 自带预览窗，画面由 pygame 自绘；仅当需求要求独立预览窗（或无 UI 调试脚本）才改 True（预览窗按 q 退出）
 
 # ===== 主循环 =====
 try:
@@ -227,6 +245,7 @@ finally:
 ### 必读文件（每次开发前读对应章节）
 - `project_memory.md` — 硬约束总表（Hard Constraints + Engineering Conventions + Lessons Learned）
 - `好搭AI派项目开发规范.md` — 完整开发规范（参考文件分级 + 8 类信息清单 + 7 步流程）
+- `好搭AI派项目开发指南.md` — 施工手册（权威优先级 §0 / 标准启动骨架 §4 / 摄像头三模式细则与参考实现 §5 / V3 已实测的 17 个坑 §6.5 / 性能基准 §11 / 故障排查速查表 §14 / 一页速记 §16）
 - **`我的好搭AI派说明.md`** — 资源清单信源（**只列字体文件和图标文件的文件名**：字体文件含设备绝对路径，图标文件位于好搭AI派设备上与运行程序同目录的 `icons/` 文件夹内，使用相对路径；**图片文件名不在此文件中**，图片同样位于好搭AI派设备上与运行程序同目录的 `images/` 文件夹内；好搭AI派设备的目录结构与本资料文件夹无关）
 - `系统环境与非视觉官方库探测报告.md` — 环境与 7 个非视觉库 API
 - `视觉系统摄像头调用参考方案.md` — 摄像头三模式选择与兼容性补丁
@@ -273,3 +292,13 @@ finally:
 | 开关写了却不生效（静默失效） | 用了旧口径开关名 `enable_yolov8` / `enable_resnet` | 只有 13 个开关真名；物体检测用 `enable_object_detection`、图像分类用 `enable_image_classification` |
 | `cv2.VideoCapture` 打不开 / `select() timeout` | 传了 int 节点号（如 `42`），或该节点无有效帧 | 传字符串路径 `cv2.VideoCapture('/dev/video40', cv2.CAP_V4L2)`，并逐节点做帧验证 |
 | 排障时找不到摄像头节点号 | 以为管理器会显示 `/dev/videoXX` | 管理器只提示有无摄像头、不显示节点号；用 `v4l2-ctl --list-devices` / `ls /dev/video*` 自行确认 |
+| V4L2 `Not a video capture device` | 打开到 `/dev/video41` 等元数据节点 | 按 40→41→42 顺序逐节点读帧 `mean()` 验证，无效节点跳过、不报错 |
+| 摄像头打不开 / 画面不动 | 节点编号变了（换扩展板 USB 口会变）或外设开关没开 | 右下角两位开关拨到左侧；换扩展板另一个 USB 母口；跑 `探测工具/探测_待定项核对.py` 打印每个候选的 exists/opened/mean |
+| ESP32 `board.start()` 返回 False | 串口路径随批次不同，或外设开关未开 | 先把右下角两位开关拨到左侧；代码一律 `board.start()` 自动探测，不硬编码串口 |
+| `'utils' is not a package` / ppocr 导入失败 | `text_recognition` 在 cv2/pygame/V3 之后导入 | 按红线 5 顺序：LIBGL → text_recognition → pygame → cv2 |
+| OCR 在摄像头打开后不可用 | `TextRecognizer()` 实例化太晚 | 实例化放在开摄像头之前 |
+| `TypeError: unexpected keyword argument 'name'` | 物体接口参数名错 | 用 `add_object_recognition_class(frame, class_name=...)` |
+| `get_object_name()` / `get_object_recognition_count()` 不存在 | 方法名错 | 用 `get_object_recognition_class_name()`；物体只能识别 1 个，用 `success` 判断 |
+| `open_camera(40)` 报 takes exactly 1 positional argument | `open_camera()` 不接受参数 | 无参调用，节点由内部候选表 `[40,41,42,43]` 自动探测 |
+| 人脸/物体库"丢失" | 工作目录变了（`face_db_path` 等是相对路径） | 固定在 `user/` 工作目录下运行 |
+| 程序打不开 / 点运行没反应 | 上一个程序没关掉占用资源 | 管理器里先停止（F6）上一个程序，再运行 |
