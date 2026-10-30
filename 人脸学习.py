@@ -372,9 +372,10 @@ class FaceLearner:
     def delete_face(self, index):
         """删除指定索引的人脸记录
 
-        注意：仅删除应用层记录（face_records.json），不调用视觉系统的删除接口。
-        视觉系统内部的识别模型一旦被 delete_face 破坏，将无法识别任何人脸，
-        因此这里只删除应用层映射，视觉系统内部数据予以保留。
+        注意：仅删除应用层记录（face_records.json），不调用任何底层删除接口。
+        报告 2.4 节确认 V3 官方接口没有 delete_face，单条特征无法安全删除；
+        早期应用层私有实现曾出现删除后模型损坏，禁止复用。
+        需要彻底清空时使用《清空人脸数据库.py》（clear_face_database() + 删除特征目录）。
 
         Args:
             index: 人脸记录索引（从 0 开始）
