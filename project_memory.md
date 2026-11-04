@@ -15,6 +15,8 @@
 - cv2 version is **5.0.0** (not 4.x) — the installed distribution is **`opencv-contrib-python 5.0.0.93`** (`xfeatures2d`/`face`/`ximgproc`/`aruco` all available, i.e. a contrib feature set). **Do NOT install, uninstall, or replace the existing OpenCV distribution** (a swap risks breaking these features / ABI). Verify API compatibility when using newer OpenCV features; fall back to v4-style calls if an error occurs
 - AudioPlayer (official lib) has NO pause/resume/stop/volume control; if playback control is needed, use pygame.mixer or pyaudio directly instead
 - **SSH 登录口径（2026-10-10 用户确定）**：用户名固定 `cxdz`；设备 **IP 不固定**，每次登录前向用户确认（也可在设备主控屏右上角查看当前 IP）；**密码不写入任何文档**，登录前向用户索取。命令模板 `ssh cxdz@<设备IP>`。文档中出现的 `192.168.0.109` 仅为历史记录，不作现值使用
+- **凭据存储口径（2026-11-04 用户再次强调）**：用户名/密码（如 `VOICE_USERNAME`、`VOICE_PASSWORD`、SSH 密码等）**禁止写入本地同步文件夹及 GitHub 仓库的任何文档/代码**；**仅允许写在好搭AI派设备本地保存的程序副本中**。本地/仓库副本一律留空（如 `VOICE_USERNAME = ''`），并注释提示凭据只保存在设备副本中；若发现本地文件含明文凭据，需清空并核实历史提交。已同步写入《好搭AI派项目开发指南》第 3 章红线 14、《好搭AI派项目开发规范》§2.8 凭据安全检查
+- **文档同步规则（2026-11-04 用户确定）**：凡涉及项目开发规范要求的内容，必要部分**必须同步写入《好搭AI派项目开发规范》与《好搭AI派项目开发指南》**，与 project_memory.md 保持一致；同步时注意不含凭据明文（凭据存储口径）
 - VoiceAPI token auto-refresh does NOT exist; if HTTP 401 occurs, re-call `VoiceAPI.get_token(user, password)` instead of looking for `refresh_token`
 - Use `pygame-ce` (Community Edition) instead of original `pygame` — they are mutually exclusive and cannot be installed simultaneously
 - `pygame-ce` version must be fixed at **2.5.2** (newer versions ≥2.5.4 drop Python 3.8 support)

@@ -134,7 +134,7 @@
 
 ---
 
-## 3. 十三条红线（违反即返工）
+## 3. 十四条红线（违反即返工）
 
 > **唯一信源**：红线以 `project_memory.md`（14 条硬约束 + 18 条工程约定）与 `haoda-aipai-dev_SKILL.md`（15 条红线）为准；本章为**施工速查摘录**，三者若不一致，以 `project_memory.md` / SKILL 为准。
 
@@ -158,6 +158,7 @@
     - 彻底清库只用 `清空人脸数据库.py` / `清空物体数据库.py`，执行完**必须重启 Python 进程**。
 12. **无板载按键**（已确认）：`GPIO_BUTTON = 0` / `GPIO_IO_00` 相关读取代码**一律删除**；不要设计"按板载按键触发"的交互，改用屏幕按钮、语音、传感器或 ESP32 外接按键模块。
 13. **新建/生成的 `.md` 一律 UTF-8 no BOM**（2026-09-12 已全量校验：资料夹现有 `.md` **全部合规**）；**窗口默认 1920×1080、最大 1920×1280、窗口模式**。
+14. **凭据不进本地/仓库（2026-11-04 用户确定）**：用户名/密码等平台凭据（如 `VOICE_USERNAME` / `VOICE_PASSWORD`、SSH 密码）**禁止写入本地同步文件夹及 GitHub 仓库的任何文档/代码**；**仅允许写在好搭AI派设备本地保存的程序副本中**。需入库/入文档的副本一律留空（如 `VOICE_USERNAME = ''`）并注释提示凭据只保存在设备副本中；交付前须全仓检索确认无明文凭据。
 
 ---
 
@@ -462,7 +463,7 @@ if not board.start():
 ### 7.3 voice_api（语音 AI）
 
 - 两个 LLM 后端：`llm_chat(text)`、`llm_chat_znbw_2025(text)` → **优先后者**（更新）。
-- **token 无自动刷新**：HTTP 401 时重新 `VoiceAPI.get_token(user, password)`，不存在 `refresh_token`。
+- **token 无自动刷新**：HTTP 401 时重新 `VoiceAPI.get_token(user, password)`，不存在 `refresh_token`。账号密码只写在**设备上的程序副本**头部常量；仓库/本地副本一律留空（见第 3 章红线 14）。
 - 其他：TTS 合成、语音识别（`voice_recognition()`）、翻译。
 - 常量：`API_BASE_URL=ApiZNBW.php`、`API_VOICE_URL=ApiXXKJ.php`、`TOKEN_FILE_PATH=/tmp/.system_cache/config.json`。
 - 未登录时 LLM 方法返回 `None`（不是抛异常），要判空。
