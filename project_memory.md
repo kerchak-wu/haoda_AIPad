@@ -39,6 +39,9 @@
 - **Object learning & recognition data flow (2-tier storage, symmetric to face)**: Tier 1 (V3 SDK internal, auto-managed): `object_database/` (binary features + classifier), loaded by `add_object_recognition_class/sample`. Tier 2 (application JSON): `object_database/object_records.json` (JSON array `[{name,sample_count,first_learned,last_learned}]`), `name` is association key. Save: `os.makedirs('object_database', exist_ok=True)` before JSON access. Single delete: only remove the JSON row. `delete_object_recognition_class` **exists** but is intended only for the official full-wipe tool (`清空物体数据库.py`, deletes classes one by one) — do NOT use it for routine single-row deletes. Full wipe: use `清空物体数据库.py` in order, must restart Python after
 
 ## Lessons Learned
+- **官方 TTS 英文短词拼读 bug（2026-11-04 实时翻译项目实测）**：好搭 TTS 引擎会把英文 `in`/`is`/`be` 按字母拼读（大小写无关，服务端行为无参数可控）；修正法 = 送 TTS 前整词替换为同音写法 `in→inn`、`is→iss`、`be→bee`（句中时长缩短 0.19~0.46s，发音相同）。`to/no/by/do/it/at/on/the/of` 正常按词读，无需替换；伪词替换（itt/onn/att）会读错，禁用。判定法：TTS 合成 wav 的时长对比（拼读 ≈ 两字母朗读时长 ~0.8-0.9s，按词读明显更短）
+- **VoiceAPI 翻译口径（2026-11-04 实时翻译项目实测）**：中→英用 `translate_english()`（官方专用接口）；英→中只能用 `llm_chat('把下面这句英文翻译成中文，只输出中文译文，不要解释和引号：' + text)`，实测正确。`llm_chat_znbw_2025` 是专用提示模型，不遵循翻译指令（返回"XX正在描述XXX"类提示语），**不能用于翻译**
+- **SSH 直启设备程序**：官方库靠 `PYTHONPATH=/home/cxdz/jupyter/lib`，SSH 会话无此变量会 `ModuleNotFoundError: voice_api`；程序内显式 `sys.path.insert(0, '/home/cxdz/jupyter/lib')` 可保证管理器/SSH 两种方式都能启动（实时翻译.py 已内置）
 - Using `cv2.VideoCapture` directly causes 'ioctl(VIDIOC_QBUF): Bad file descriptor' errors on rockchip due to SDL2 video subsystem interference
 - V3 `color_recognition_regions` must use 640x480 coordinates (internal processing resolution), not 1280x720; out-of-range coordinates cause '无效的区域坐标' errors
 - V3 facial expression `engagement='Engaged'` does NOT mean 'looking at screen'; use `emotion` (8-class) instead for meaningful state differentiation
