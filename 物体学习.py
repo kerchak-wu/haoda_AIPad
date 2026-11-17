@@ -3,13 +3,15 @@
 物体学习程序 - 好搭AI派
 ======================
 功能说明：
-  1. USB外接摄像头实时采集画面（由视觉系统 open_camera + capture_frame 管理）
+  1. USB外接摄像头实时采集画面（cv2 VideoCapture 直读 + 独立采集线程，画面实时）
   2. 输入物体名称标签，将当前画面学习为该物体类别/样本
   3. 同一物体可多次学习（多角度/多实例），增强识别鲁棒性
   4. 界面显示摄像头画面、学习状态和已学习物体列表
   5. 物体记录持久化到 JSON 文件，重启后自动加载并继续学习
   6. 可选择删除已学习的物体记录（仅删应用层，不破坏视觉系统模型）
   7. 提供 ObjectLearner 类，可供其他程序导入调用
+  8. 点击物体名称框弹出拼音输入面板（复用 pinyin_input/ 子目录组件：
+     软键盘/语音识别/手机辅助页），提交后回填名称框
 
 硬件接线：
   - USB外接摄像头(/dev/video41 或 /dev/video40)
@@ -23,21 +25,24 @@
 参考范例：
   - 范例代码 5.11 物体识别学习（add_object_recognition_class / sample）
   - 范例代码 5.12 物体识别（result_accessor 获取结果）
-  - 人脸学习.py（FaceLearner 类结构与持久化模式）
-  - 人脸识别灯效.py（视觉系统 open_camera + capture_frame + 后台检测线程模式）
+  - 人脸学习.py（FaceLearner 类结构、持久化模式与 cv2 直读采集线程模式）
 
 重要约束：
   - 完全基于外接USB摄像头实时画面学习，不从 images 文件夹读取图片。
-  - 物体学习必须 open_camera + start_background_detection（add_object_recognition_sample
-    使用视觉系统当前捕获的帧），与人脸学习 learn_new_face(frame=...) 不同。
-  - 因此不能使用 cv2 VideoCapture，必须用 vision_system.capture_frame() 获取帧
-    用于界面显示，避免与视觉系统的 V4L2 设备冲突。
-  - 采集线程 0.05s 睡眠（≈20fps），frame_lock 保护 raw_frame 读写。
+  - 架构与人脸学习.py 一致（外部传帧模式）：依据 camera_vision_system_v3_API分析报告.md
+    8.4 节结论，add_object_recognition_class / add_object_recognition_sample 均支持
+    外部传帧（frame=ndarray），不传帧才从摄像头当前画面取。因此：
+    * 视觉系统只做 create_vision_system_v3 + _init_detectors，不 open_camera、
+      不 start_background_detection，学习瞬间之外 CPU/NPU 空闲，画面流畅；
+    * 画面显示用 cv2.VideoCapture 直读（独立采集线程，只 read 不处理），
+      与视觉系统无 V4L2 设备冲突（视觉系统未占用摄像头）；
+    * 学习时把显示用的同一帧显式传给 SDK（所见即所得），不依赖内部当前帧。
+  - 此前的「物体学习必须 open_camera + 后台检测」是认知误区，已按外部传帧模式重构。
 
 模块调用示例：
   from 物体学习 import ObjectLearner
   learner = ObjectLearner()
-  learner.learn_current_frame('水杯')   # 用当前USB摄像头帧学习/添加样本
+  learner.learn_current_frame('水杯', frame)  # 传入当前USB摄像头帧学习/添加样本
   objects = learner.get_learned_objects()
   learner.delete_object(0)
   learner.close()
@@ -60,6 +65,20 @@ import numpy as np
 
 from ESP32 import *
 from camera_vision_system_v3 import create_vision_system_v3
+
+# ===================== 拼音输入面板组件（复用 pinyin_input 子目录）=====================
+# pinyin_input 子目录相对主程序文件位置解析后加入模块搜索路径，直接导入组件；
+# 禁止把 pinyin_input 里的文件复制平铺到 user 根目录，也不改动子目录内任何文件
+_PI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pinyin_input')
+if os.path.isdir(_PI_DIR) and _PI_DIR not in sys.path:
+    sys.path.append(_PI_DIR)
+
+from input_panel import PinyinInputPanel, load_font
+from voice_input import VoiceInput
+from phone_bridge import PhoneBridge
+import voice_input as _voice_input
+# 语音录音临时文件统一放到 pinyin_input/recordings/，避免散落在 user 根目录
+_voice_input.RECORDINGS_DIR = os.path.join(_PI_DIR, 'recordings')
 
 
 # ===================== 日志输出（控制台 + 文件）=====================
@@ -119,8 +138,9 @@ WIDTH, HEIGHT = 1920, 1080
 FONT_PATH = '/home/cxdz/jupyter/assets/PingFang_Regular.ttf'
 FONT_BOLD_PATH = '/home/cxdz/jupyter/assets/PingFang_Bold.ttf'
 
-# 摄像头配置（视觉系统内部使用，这里仅用于显示与分辨率标注）
-CAMERA_W, CAMERA_H = 1280, 720
+# 摄像头配置（外部传帧模式：cv2 直读 640×480，与人脸学习一致，降低显示转换开销；
+# 学习时 SDK 内部自行缩放处理，识别质量以真机验证为准）
+CAMERA_W, CAMERA_H = 640, 480
 CAM_DISP_W, CAM_DISP_H = 880, 660
 
 # 物体记录持久化文件（与 V3 SDK 的 object_database/ 目录统一管理）
@@ -158,24 +178,105 @@ if not _board_isstarted:
     raise Exception("扩展板连接异常，请检查硬件")
 
 
+# ===================== 摄像头打开 =====================
+# 参照人脸学习.py 的摄像头探测逻辑：MJPG + 超时 + 雪花检测
+class _CameraProbeTimeout(Exception):
+    """探测摄像头时 SIGALRM 超时"""
+    pass
+
+
+def _is_valid_frame(frame):
+    """判断帧是否为有效画面（非空、非全黑、非雪花噪声）"""
+    if frame is None or frame.size == 0:
+        return False
+    try:
+        std_orig = float(frame.std())
+        if std_orig < 5:
+            return False
+        small = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
+        std_small = float(small.std())
+        if std_orig > 20 and std_small / std_orig < 0.2:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _try_open_camera(cid, timeout=4):
+    cap = None
+    use_alarm = (hasattr(signal, "SIGALRM")
+                 and threading.current_thread() is threading.main_thread())
+    old_handler = None
+    if use_alarm:
+        def _alarm(signum, frame):
+            raise _CameraProbeTimeout()
+        old_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, _alarm)
+        signal.alarm(timeout)
+    try:
+        device_path = "/dev/video{}".format(cid)
+        cap = cv2.VideoCapture(device_path)
+        if cap is None or not cap.isOpened():
+            return None
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        except Exception:
+            pass
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_W)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_H)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        for _ in range(20):
+            ok, frame = cap.read()
+            if ok and _is_valid_frame(frame):
+                return cap
+        try:
+            cap.release()
+        except Exception:
+            pass
+        return None
+    except _CameraProbeTimeout:
+        print("  /dev/video{} 探测超时，跳过".format(cid))
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+        return None
+    finally:
+        if use_alarm:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+
+
+def open_camera():
+    """打开USB外接摄像头，固定探测 /dev/video41 和 /dev/video40"""
+    for cid in (41, 40):
+        print("  探测 /dev/video{} ...".format(cid))
+        cap = _try_open_camera(cid)
+        if cap is not None:
+            print("摄像头使用编号：{} (/dev/video{})".format(cid, cid))
+            return cap
+    return None
+
+
 # ===================== ObjectLearner 物体学习器 =====================
 # 供其他程序调用的物体学习接口
 class ObjectLearner:
     """物体学习器，封装视觉系统的物体识别学习功能
 
-    使用方式：
-        learn_current_frame(name)：用当前USB摄像头帧学习/添加样本
-          - 若该类别未创建，则先用 add_object_recognition_class 创建类别
-          - 若该类别已创建，则用 add_object_recognition_sample 添加样本
+    使用外部传帧模式（与人脸学习 FaceLearner 一致）：
+        learn_current_frame(name, frame)：传入当前USB摄像头帧学习/添加样本
+          - 若该类别未创建，则用 frame 调用 add_object_recognition_class 创建类别
+          - 若该类别已创建，则用 frame 调用 add_object_recognition_sample 添加样本
 
-    注意：物体学习必须 open_camera + start_background_detection，
-    因为 add_object_recognition_sample 使用视觉系统当前捕获的帧。
-    因此本类内部管理摄像头，不使用 cv2 VideoCapture。
+    注意：本类不管理摄像头（不 open_camera、不启动后台检测），
+    依据 API 分析报告 8.4 节，add_object_recognition_class/sample 均支持
+    外部传帧（frame=ndarray）。摄像头由调用方（界面程序）用 cv2 直读管理。
 
     其他程序可通过以下方式调用：
         from 物体学习 import ObjectLearner
         learner = ObjectLearner()
-        learner.learn_current_frame('水杯')
+        learner.learn_current_frame('水杯', frame)  # frame 为 BGR ndarray
         objects = learner.get_learned_objects()
         learner.delete_object(0)
         learner.close()
@@ -189,20 +290,16 @@ class ObjectLearner:
         # 加载持久化记录
         self._load_records()
 
-        # 创建视觉系统并启动后台检测（严格参照范例 5.11）
+        # 创建视觉系统（不 open_camera、不启动后台检测，仅用于学习接口）
         self._init_vision_system(width, height)
 
-        # 启动后台采集线程（用于界面显示，不影响后台检测）
-        self._raw_frame = None
-        self._frame_lock = threading.Lock()
-        self._capture_running = True
-        threading.Thread(target=self._capture_loop, daemon=True).start()
-
     def _init_vision_system(self, width=1280, height=720):
-        """创建并初始化视觉系统（严格参照范例代码 5.11）
+        """创建并初始化视觉系统（外部传帧模式）
 
         流程：create_vision_system_v3 → 启用 object_recognition → _init_detectors
-              → open_camera → start_background_detection(show_preview=False)
+        不调用 open_camera / start_background_detection：
+          - 学习帧由调用方显式传入，无需视觉系统内部取帧
+          - 后台检测不跑推理，CPU/NPU 空闲，界面渲染流畅
         """
         self.vision_system = create_vision_system_v3(
             camera_id=-1, width=width, height=height,
@@ -212,50 +309,77 @@ class ObjectLearner:
         self.vision_system._init_detectors()
         print('object_recognition 算法已启用')
 
-        # 打开摄像头（必须，add_object_recognition_sample 需要当前帧）
-        print('正在打开视觉系统摄像头...')
-        self.camera_ok = False
-        if self.vision_system.open_camera():
-            print('视觉系统摄像头已打开')
-            self.camera_ok = True
-        else:
-            print('摄像头打开失败，请检查 /dev/video41 和 /dev/video40')
-            return
+    # ---- 学习 ----
+    def learn_current_frame(self, name, frame=None):
+        """用传入的摄像头帧学习物体（外部传帧，所见即所得）
 
-        # 启动后台检测（show_preview=False，不弹 OpenCV 窗口）
-        self.vision_system.threaded_system.start_background_detection(show_preview=False)
-        print('物体识别后台检测已启动')
+        流程（API 分析报告 8.4 节）：
+          - 若 name 是新类别：调用 add_object_recognition_class(frame=frame, class_name=name)
+            创建类别，并记录 sample_count=1
+          - 若 name 是已创建类别：调用 add_object_recognition_sample(frame=frame, class_name=name)
+            添加样本，sample_count+=1
+          两次调用均显式传帧，保证学习的就是屏幕上显示的画面。
 
-    def _capture_loop(self):
-        """后台采集线程：调用 capture_frame() 获取帧用于界面显示
+        Args:
+            name:  物体类别名（应用层维护，如 '水杯'）
+            frame: OpenCV 帧(BGR ndarray)，必须由调用方传入
 
-        关键改进（参考人脸识别灯效.py 已验证模式）：
-        1. 0.05s 睡眠 ≈ 20fps 采集，保证画面流畅
-        2. 帧有效性验证，跳过损坏帧
-        3. capture_frame() 只读缓存，不访问 V4L2，与后台检测线程不冲突
+        Returns:
+            dict/str: 学习结果信息（视觉系统返回值），失败返回 None
         """
-        # 启动后等待 0.5s 让后台检测线程先稳定
-        time.sleep(0.5)
-        while self._capture_running:
-            if not self.camera_ok:
-                time.sleep(0.3)
-                continue
-            try:
-                frame = self.vision_system.capture_frame()
-                if frame is not None and hasattr(frame, 'shape') and len(frame.shape) == 3:
-                    with self._frame_lock:
-                        self._raw_frame = frame
-            except Exception as e:
-                if self._capture_running:
-                    print('采集帧异常:', e)
-            # 0.05s 睡眠 ≈ 20fps 采集，提升画面流畅度
-            # capture_frame() 只读缓存不访问 V4L2，与后台检测线程不冲突
-            time.sleep(0.05)
+        if not name:
+            return None
+        if frame is None:
+            print('学习失败：未传入帧（外部传帧模式必须提供 frame 参数）')
+            return None
+        try:
+            with self._lock:
+                is_new_class = name not in self._classes_created
 
-    def get_current_frame(self):
-        """获取当前摄像头帧的副本（线程安全）"""
-        with self._frame_lock:
-            return self._raw_frame.copy() if self._raw_frame is not None else None
+            if is_new_class:
+                # 新类别：用传入帧创建类别
+                result = self.vision_system.add_object_recognition_class(
+                    frame=frame, class_name=name
+                )
+                print('创建物体类别 [%s] 结果：%s' % (name, str(result)))
+                with self._lock:
+                    self._classes_created.add(name)
+                    # 查找是否已有同名记录（可能 JSON 丢失但 classes_created 重建）
+                    existing = None
+                    for obj in self._learned_objects:
+                        if obj['name'] == name:
+                            existing = obj
+                            break
+                    now = time.strftime('%Y-%m-%d %H:%M:%S')
+                    if existing is None:
+                        self._learned_objects.append({
+                            'name': name,
+                            'sample_count': 1,
+                            'first_learned': now,
+                            'last_learned': now,
+                        })
+                    else:
+                        existing['sample_count'] = existing.get('sample_count', 0) + 1
+                        existing['last_learned'] = now
+                self._save_records()
+                return result
+            else:
+                # 已有类别：用传入帧添加样本（显式传帧，与显示画面一致）
+                result = self.vision_system.add_object_recognition_sample(
+                    frame=frame, class_name=name
+                )
+                print('添加物体样本 [%s] 结果：%s' % (name, str(result)))
+                with self._lock:
+                    for obj in self._learned_objects:
+                        if obj['name'] == name:
+                            obj['sample_count'] = obj.get('sample_count', 0) + 1
+                            obj['last_learned'] = time.strftime('%Y-%m-%d %H:%M:%S')
+                            break
+                self._save_records()
+                return result
+        except Exception as e:
+            print('物体学习异常:', e)
+            return None
 
     # ---- 持久化 ----
     def _load_records(self):
@@ -298,77 +422,6 @@ class ObjectLearner:
             print('已保存 %d 条物体记录' % len(data))
         except Exception as e:
             print('保存物体记录失败:', e)
-
-    # ---- 学习 ----
-    def learn_current_frame(self, name):
-        """用当前摄像头帧学习物体
-
-        流程（严格参照范例 5.11）：
-          - 若 name 是新类别：调用 add_object_recognition_class(frame=current_frame, class_name=name)
-            创建类别，并记录 sample_count=1
-          - 若 name 是已创建类别：调用 add_object_recognition_sample(class_name=name)
-            添加样本，sample_count+=1
-
-        Args:
-            name: 物体类别名（应用层维护，如 '水杯'）
-
-        Returns:
-            dict/str: 学习结果信息（视觉系统返回值），失败返回 None
-        """
-        if not name:
-            return None
-        try:
-            with self._lock:
-                is_new_class = name not in self._classes_created
-
-            if is_new_class:
-                # 新类别：用当前帧创建类别
-                frame = self.get_current_frame()
-                if frame is None:
-                    print('学习失败：当前无可用帧')
-                    return None
-                result = self.vision_system.add_object_recognition_class(
-                    frame=frame, class_name=name
-                )
-                print('创建物体类别 [%s] 结果：%s' % (name, str(result)))
-                with self._lock:
-                    self._classes_created.add(name)
-                    # 查找是否已有同名记录（可能 JSON 丢失但 classes_created 重建）
-                    existing = None
-                    for obj in self._learned_objects:
-                        if obj['name'] == name:
-                            existing = obj
-                            break
-                    now = time.strftime('%Y-%m-%d %H:%M:%S')
-                    if existing is None:
-                        self._learned_objects.append({
-                            'name': name,
-                            'sample_count': 1,
-                            'first_learned': now,
-                            'last_learned': now,
-                        })
-                    else:
-                        existing['sample_count'] = existing.get('sample_count', 0) + 1
-                        existing['last_learned'] = now
-                self._save_records()
-                return result
-            else:
-                # 已有类别：添加样本（视觉系统使用当前捕获的帧）
-                result = self.vision_system.add_object_recognition_sample(
-                    class_name=name
-                )
-                print('添加物体样本 [%s] 结果：%s' % (name, str(result)))
-                with self._lock:
-                    for obj in self._learned_objects:
-                        if obj['name'] == name:
-                            obj['sample_count'] = obj.get('sample_count', 0) + 1
-                            obj['last_learned'] = time.strftime('%Y-%m-%d %H:%M:%S')
-                            break
-                self._save_records()
-                return result
-        except Exception as e:
-            print('物体学习异常:', e)
-            return None
 
     # ---- 删除 ----
     def delete_object(self, index):
@@ -427,8 +480,6 @@ class ObjectLearner:
     # ---- 清理 ----
     def close(self):
         """释放视觉系统资源"""
-        self._capture_running = False
-        time.sleep(0.2)
         try:
             self.vision_system.cleanup()
         except Exception:
@@ -446,6 +497,20 @@ def make_gradient_bg(width, height, top, bottom):
         b = int(top[2] + (bottom[2] - top[2]) * ratio)
         pygame.draw.line(surf, (r, g, b), (0, y), (width, y))
     return surf
+
+
+def make_qr_surface(url, box_size=4):
+    """生成二维码 pygame 表面；qrcode/PIL 不可用时返回 None（照搬拼音输入法.py）"""
+    try:
+        import qrcode
+        qr = qrcode.QRCode(box_size=box_size, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image().convert('RGB')
+        return pygame.image.frombuffer(img.tobytes(), img.size, 'RGB')
+    except Exception as e:
+        print('二维码生成失败（仅显示文字地址）: %s' % e)
+        return None
 
 
 def cvframe_to_surface(frame, target_w, target_h):
@@ -572,7 +637,7 @@ class TextInput:
                              (cursor_x, self.rect.bottom - 8), 2)
 
         if not self.text:
-            hint = self.font.render(hint_text, True, SUBTLE_COLOR)
+            hint = self.font.render('点击弹出拼音面板输入名称...', True, SUBTLE_COLOR)
             surf.blit(hint, (self.rect.x + 12, text_y))
 
 
@@ -580,9 +645,9 @@ class TextInput:
 class ObjectLearnApp:
     """物体学习 Pygame 界面应用
 
-    摄像头完全由视觉系统管理（open_camera + capture_frame），
-    不使用 cv2 VideoCapture，避免设备冲突。
-    学习流程严格参照范例代码 5.11。
+    外部传帧模式（与人脸学习 FaceLearnApp 一致）：
+    摄像头由本程序用 cv2.VideoCapture 直读（独立采集线程），
+    视觉系统不占用摄像头、不跑后台检测；学习时把显示帧显式传给 SDK。
     """
 
     TITLE_H = 130
@@ -640,9 +705,23 @@ class ObjectLearnApp:
         self.btn_exit = Button((WIDTH - 280, 30, 240, 70),
                                '退出程序', EXIT_COLOR, EXIT_HOVER)
 
-        # 初始化物体学习器（视觉系统初始化 + 摄像头打开 + 后台检测）
+        # 初始化物体学习器（仅视觉系统算法加载，不占用摄像头）
         print('正在初始化物体识别系统...')
         self.learner = ObjectLearner()
+
+        # 打开摄像头（cv2 直读，用于界面显示与学习传帧）
+        print('外接摄像头打开中...')
+        self.cap = open_camera()
+        self.camera_ok = self.cap is not None and self.cap.isOpened()
+        if self.camera_ok:
+            print('外接摄像头已打开')
+        else:
+            print('摄像头打开失败，请检查 /dev/video41 和 /dev/video40')
+
+        # 帧状态：采集线程只 read 覆盖旧帧，主循环取副本显示/学习
+        self.raw_frame = None
+        self.frame_lock = threading.Lock()
+        self.cam_thread_running = True
 
         # 状态
         self.running = True
@@ -653,9 +732,141 @@ class ObjectLearnApp:
         self.object_delete_rects = []
         self.object_name_rects = []  # [(name_rect, name), ...] 点击回填名称
 
+        # ===== 拼音输入面板（点击名称框弹出，模态覆盖主区域）=====
+        self.panel_open = False
+        # 面板尺寸与独立程序 拼音输入法.py 完全一致（其窗口 1280x820）
+        panel_rect = pygame.Rect(60, 110, 1160, 666)
+        self.panel = PinyinInputPanel(panel_rect)
+
+        # ----- 语音输入（凭据从设备本地 credentials.py 读取；
+        # 同步文件夹内的代码一律留空，凭据只保存在设备副本中）-----
+        self.voice = VoiceInput()
+
+        def voice_press():
+            if not self.voice.is_available():
+                self.panel.voice_status = '语音不可用：请在 pinyin_input/credentials.py 配置凭据'
+                self.set_status('语音不可用：请先配置凭据', ERROR_COLOR)
+                return
+            try:
+                self.voice.start_record()
+                self.panel.voice_active = True
+                self.panel.voice_status = '录音中... 松开结束'
+                self.set_status('录音中... 松开结束', ACCENT_COLOR)
+            except Exception as e:
+                self.panel.voice_active = False
+                self.panel.voice_status = '录音启动失败: %s' % e
+                self.set_status('录音启动失败: %s' % e, ERROR_COLOR)
+
+        def voice_release():
+            self.panel.voice_active = False
+            if not self.voice.is_available():
+                return
+            self.panel.voice_status = '语音识别中...'
+            self.set_status('语音识别中...', ACCENT_COLOR)
+            # 识别在线程中处理，成功后 append_text 追加进编辑区
+            threading.Thread(target=self._voice_process, daemon=True).start()
+
+        # 语音按钮的按住/松开回调接到面板上（照搬拼音输入法.py）
+        self.panel.voice_press_cb = voice_press
+        self.panel.voice_release_cb = voice_release
+
+        if self.voice.is_available():
+            self.panel.voice_status = '语音已就绪'
+        else:
+            self.panel.voice_status = '语音未配置凭据'
+
+        # ----- 手机辅助页（随机端口）+ 二维码（照搬拼音输入法.py）-----
+        self.bridge = PhoneBridge()
+        self.bridge_ok = self.bridge.start()
+        if self.bridge_ok:
+            print('手机辅助页: %s' % self.bridge.url)
+            qr_big = make_qr_surface(self.bridge.url, box_size=8)
+            self.panel.set_phone_info(self.bridge.url, qr_big)
+            self.panel.phone_status = '等待手机扫码推送...'
+        else:
+            self.panel.phone_status = '服务启动失败（不影响键盘输入）'
+            print('手机辅助页启动失败（随机端口分配异常），不影响键盘输入')
+
+        # ----- 面板「提交」回调：take_text 取出全部文字（自动清空编辑区）-----
+        # 编辑区有字 → 填入名称框并关闭面板；
+        # 编辑区为空 → 清空名称框并关闭面板（方便重新录入）
+        def do_submit():
+            text = self.panel.take_text().replace('\n', '').replace('\r', '').strip()
+            if text:
+                self.name_input.text = text[:self.name_input.max_len]
+                self.set_status('名称已填入：%s' % self.name_input.text, SUCCESS_COLOR)
+            else:
+                self.name_input.text = ''
+                self.set_status('名称已清空，可重新输入', ACCENT_COLOR)
+            self.name_input.active = False
+            self.panel_open = False
+            print('面板提交后名称框: %r' % self.name_input.text)
+
+        self.panel.on_submit_cb = do_submit
+
+        # 启动摄像头采集线程（后台线程，避免阻塞主循环）
+        threading.Thread(target=self.camera_capture_loop, daemon=True).start()
+
     def set_status(self, msg, color=SUBTLE_COLOR):
         self.status_msg = msg
         self.status_color = color
+
+    def camera_capture_loop(self):
+        """后台线程：快速读取摄像头帧，保证画面实时
+
+        线程只负责 read() 并覆盖旧帧，不做任何处理，
+        避免 V4L2 内核缓冲区积压旧帧导致画面延迟。
+        """
+        fail = 0
+        while self.cam_thread_running:
+            if not self.camera_ok or self.cap is None:
+                time.sleep(0.2)
+                continue
+            try:
+                ok, frame = self.cap.read()
+                if ok and frame is not None:
+                    with self.frame_lock:
+                        self.raw_frame = frame
+                    fail = 0
+                else:
+                    fail += 1
+                    if fail > 5:
+                        time.sleep(0.05)
+            except Exception as e:
+                if self.cam_thread_running:
+                    print('摄像头采集异常:', e)
+                fail += 1
+                time.sleep(0.05)
+
+    def get_current_frame(self):
+        """获取当前摄像头帧的副本（线程安全）"""
+        with self.frame_lock:
+            return self.raw_frame.copy() if self.raw_frame is not None else None
+
+    def _voice_process(self):
+        """语音识别子线程：成功后把结果追加进面板编辑区（与独立程序一致）"""
+        text = self.voice.stop_and_recognize()
+        if text:
+            self.panel.append_text(text)
+            self.panel.voice_status = '识别结果: %s' % text
+            self.set_status('语音: %s' % text, SUCCESS_COLOR)
+        else:
+            self.panel.voice_status = '语音识别失败或未说话'
+            self.set_status('语音识别失败或未说话', ERROR_COLOR)
+
+    def open_panel(self):
+        """点击名称框：弹出拼音输入面板（模态覆盖主区域）
+
+        名称框已有文字时先回填到面板编辑区，便于在原基础上修改；
+        关闭时若未提交则名称框保持不变。
+        """
+        self.name_input.active = False
+        self.panel.set_text(self.name_input.text)
+        self.panel_open = True
+
+    def close_panel(self):
+        """关闭面板不保存（面板编辑区内容保留，下次打开可继续）"""
+        self.panel_open = False
 
     def handle_learn(self):
         """处理学习物体按钮点击"""
@@ -663,12 +874,17 @@ class ObjectLearnApp:
         if not name:
             self.set_status('请先输入物体名称', ERROR_COLOR)
             return
-        if not self.learner.camera_ok:
+        if not self.camera_ok:
             self.set_status('摄像头未就绪，无法学习', ERROR_COLOR)
             return
+        frame = self.get_current_frame()
+        if frame is None:
+            self.set_status('摄像头未就绪，请稍候', ERROR_COLOR)
+            return
         self.set_status('正在学习...', ACCENT_COLOR)
-        # 在主线程中执行学习（避免多线程并发访问视觉系统）
-        result = self.learner.learn_current_frame(name)
+        # 在主线程中执行学习（避免多线程并发访问视觉系统），
+        # 把显示用的同一帧显式传给 SDK（所见即所得）
+        result = self.learner.learn_current_frame(name, frame)
         if result is None:
             self.set_status('学习失败，请确保画面中有清晰物体', ERROR_COLOR)
         else:
@@ -714,13 +930,13 @@ class ObjectLearnApp:
         head = self.font_sub.render('摄像头画面', True, TITLE_COLOR)
         self.screen.blit(head, (self.cam_rect.x + 20, self.cam_rect.y + 15))
 
-        status = '● 已连接' if self.learner.camera_ok else '○ 未连接'
-        sc = SUCCESS_COLOR if self.learner.camera_ok else ERROR_COLOR
+        status = '● 已连接' if self.camera_ok else '○ 未连接'
+        sc = SUCCESS_COLOR if self.camera_ok else ERROR_COLOR
         st = self.font_small.render(status, True, sc)
         self.screen.blit(st, (self.cam_rect.right - st.get_width() - 20,
                               self.cam_rect.y + 20))
 
-        frame = self.learner.get_current_frame()
+        frame = self.get_current_frame()
         if frame is not None:
             surf = cvframe_to_surface(frame, CAM_DISP_W, CAM_DISP_H)
             if surf is not None:
@@ -729,8 +945,8 @@ class ObjectLearnApp:
                 cam_y = self.cam_rect.y + 60
                 self.screen.blit(surf, (cam_x, cam_y))
         else:
-            hint_text = '摄像头未连接' if not self.learner.camera_ok else '等待画面...'
-            hint_color = ERROR_COLOR if not self.learner.camera_ok else SUBTLE_COLOR
+            hint_text = '摄像头未连接' if not self.camera_ok else '等待画面...'
+            hint_color = ERROR_COLOR if not self.camera_ok else SUBTLE_COLOR
             hint = self.font_sub.render(hint_text, True, hint_color)
             self.screen.blit(hint, (self.cam_rect.centerx - hint.get_width() // 2,
                                     self.cam_rect.centery - hint.get_height() // 2))
@@ -843,7 +1059,7 @@ class ObjectLearnApp:
         self.screen.blit(mask, (0, HEIGHT - self.FOOTER_H))
 
         hint = self.font_small.render(
-            'ESC 退出  ·  输入物体名称后回车或点击「学习物体」  ·  同一物体多次学习可提升识别准确率',
+            '点击名称框弹出拼音输入面板 · ESC 关闭面板/退出程序 · 回车或点击「学习物体」',
             True, SUBTLE_COLOR)
         self.screen.blit(hint, (60, HEIGHT - self.FOOTER_H // 2 - hint.get_height() // 2))
 
@@ -855,6 +1071,16 @@ class ObjectLearnApp:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                elif self.panel_open:
+                    # 模态：面板优先消费事件，返回 True 时主程序不得再处理
+                    # （防止点击穿透到下层按钮）
+                    if self.panel.handle_event(event):
+                        continue
+                    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                        self.close_panel()          # ESC 关闭不保存
+                    elif (event.type == pygame.MOUSEBUTTONDOWN
+                          and not self.panel.rect.collidepoint(event.pos)):
+                        self.close_panel()          # 点面板外关闭不保存
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if self.btn_exit.clicked(event.pos):
                         self.running = False
@@ -875,27 +1101,30 @@ class ObjectLearnApp:
                         for name_rect, name in self.object_name_rects:
                             if name_rect.collidepoint(event.pos):
                                 self.name_input.text = name
-                                self.name_input.active = True
+                                self.name_input.active = False
                                 self.set_status(
                                     '已选择 [%s]，对准物体后点击「学习物体」添加样本' % name,
                                     ACCENT_COLOR)
                                 name_clicked = True
                                 break
-                        if not name_clicked:
-                            self.name_input.set_active(event.pos)
+                        if not name_clicked and self.name_input.rect.collidepoint(event.pos):
+                            self.open_panel()       # 点击名称框弹出拼音输入面板
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
-                    elif self.name_input.active:
-                        if event.key == pygame.K_RETURN:
-                            self.handle_learn()
-                        else:
-                            self.name_input.handle_key(event)
                     elif event.key == pygame.K_RETURN:
-                        self.name_input.active = True
+                        self.handle_learn()
 
             self.btn_learn.update(mouse_pos)
             self.btn_exit.update(mouse_pos)
+
+            # 手机推送轮询（面板打开时取走推送内容，覆盖进面板编辑区）
+            if self.panel_open and self.bridge_ok:
+                phone_text = self.bridge.get_text()
+                if phone_text:
+                    self.panel.set_text(phone_text)
+                    self.panel.phone_status = '已同步手机内容'
+                self.bridge.set_current_text(self.panel.text)
 
             self.screen.blit(self.bg, (0, 0))
             self.draw_title()
@@ -903,11 +1132,33 @@ class ObjectLearnApp:
             self.draw_info_panel()
             self.draw_footer()
 
+            if self.panel_open:
+                # 模态：浅色遮罩 + 输入面板（保持浅色风格）
+                dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                dim.fill((255, 255, 255, 130))
+                self.screen.blit(dim, (0, 0))
+                self.panel.draw(self.screen)
+
             pygame.display.flip()
             self.clock.tick(30)
 
         # 退出清理
         print('正在关闭程序...')
+        self.cam_thread_running = False
+        time.sleep(0.2)
+        try:
+            self.bridge.stop()
+        except Exception:
+            pass
+        try:
+            self.panel.engine.save_user_freq()
+        except Exception:
+            pass
+        try:
+            if self.cap is not None:
+                self.cap.release()
+        except Exception:
+            pass
         self.learner.close()
         pygame.quit()
         try:

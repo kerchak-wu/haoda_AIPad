@@ -156,6 +156,7 @@ class PinyinInputPanel(object):
         self.phone_status = ''         # 手机页状态文字（宿主可写）
         self.on_submit_cb = None       # 「提交」按钮回调（宿主设置，如 panel.take_text）
         self._last_cand_raw = ''
+        self._compact_cand_rects = []  # 语音/手机页轻量候选条可点击词区（绘制时更新）
         self._build_keys()
 
     # ---------- 公开 API ----------
@@ -241,6 +242,13 @@ class PinyinInputPanel(object):
                 if idx is not None:
                     self._commit_word(idx)
                     return True
+            # 轻量候选条点击（语音/手机页）
+            if (self.page in ('voice', 'phone') and self.mode_cn
+                    and self.candidates):
+                for gidx, r in self._compact_cand_rects:
+                    if r.collidepoint(event.pos):
+                        self._commit_word(gidx)
+                        return True
             return False
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             key = self.pressed_key
@@ -275,6 +283,13 @@ class PinyinInputPanel(object):
                 self._trim_lines()
                 return True
             return False
+        if key == pygame.K_PAGEUP:
+            self._cand_offset = max(0, self._cand_offset - 9)
+            return True
+        if key == pygame.K_PAGEDOWN:
+            if self._cand_offset + 9 < len(self.candidates):
+                self._cand_offset += 9
+            return True
         if pygame.K_1 <= key <= pygame.K_9:
             idx = key - pygame.K_1
             if self.mode_cn and self.candidates:
@@ -328,9 +343,8 @@ class PinyinInputPanel(object):
         return False
 
     def _edit_backspace(self):
-        """退格：键盘页先删拼音字母，拼音删完再删已上屏文字；其他页直接删文字"""
-        if (self.page == 'kb' and self.mode_cn and not self._sym_mode
-                and self.engine.input):
+        """退格：正在打拼音时先删拼音字母（三页通用），删完再删已上屏文字"""
+        if (self.mode_cn and not self._sym_mode and self.engine.input):
             self.engine.pop_key()
         else:
             line = self._text_lines[-1]
@@ -458,6 +472,7 @@ class PinyinInputPanel(object):
             vrect = pygame.Rect(int(left_x + side + 60), int(bottom - side),
                                 side, side)
             self.keys.append(_Key('voice', '按住说话', vrect))
+            self._build_compact_page_keys()
             return
         if self.page == 'phone':
             # 手机页：二维码（左，大）+ 提交按钮（右，矩形），底边对齐
@@ -467,6 +482,7 @@ class PinyinInputPanel(object):
             srect = pygame.Rect(0, 0, sw, sh)
             srect.bottomright = (int(x + w - pad - 10), int(area_bottom - 10))
             self.keys.append(_Key('submit', '提交', srect))
+            self._build_compact_page_keys()
             return
         # ----- 键盘页：候选栏 + 字母/符号键盘 -----
         kb_top = self._content_top() + cand_h + 6
@@ -547,6 +563,19 @@ class PinyinInputPanel(object):
                 pygame.Rect(int(words_left + i * (cw + gap)), int(cand_y),
                             int(cw), int(cand_h)))
 
+    def _build_compact_page_keys(self):
+        """语音/手机页：轻量候选条两端的翻页键（复用 cand_prev/cand_next 逻辑）；
+        仅在正在打拼音（候选条可见）时生成，避免空置时残留按钮"""
+        if not (self.mode_cn and self.engine.input):
+            return
+        x, y, w, h = self.rect
+        bw, bh = 48, 44
+        by = y + h - 54
+        prev_rect = pygame.Rect(int(x + 14), int(by), bw, bh)
+        next_rect = pygame.Rect(int(x + w - 14 - bw), int(by), bw, bh)
+        self.keys.append(_Key('cand_prev', '◀', prev_rect))
+        self.keys.append(_Key('cand_next', '▶', next_rect))
+
     def _key_at(self, pos):
         for k in self.keys:
             if k.rect.collidepoint(pos):
@@ -569,6 +598,9 @@ class PinyinInputPanel(object):
         # 面板底
         pygame.draw.rect(surface, COL_BG, self.rect, border_radius=16)
         pygame.draw.rect(surface, COL_BORDER, self.rect, 2, border_radius=16)
+        # 语音/手机页：先画轻量候选条背景，避免盖住两端翻页键
+        if self.page in ('voice', 'phone'):
+            self._draw_compact_cand_bg(surface)
         # 编辑区（三页共用）
         edit_rect = pygame.Rect(x + pad, y + pad, w - 2 * pad, edit_h)
         pygame.draw.rect(surface, COL_WHITE, edit_rect, border_radius=12)
@@ -589,30 +621,52 @@ class PinyinInputPanel(object):
             self._draw_phone_page(surface)
             self._draw_compact_cand(surface)
 
-    def _draw_compact_cand(self, surface):
-        """语音页/手机页底部的轻量候选条：正在打拼音时才出现"""
+    def _draw_compact_cand_bg(self, surface):
+        """语音页/手机页轻量候选条的背景（先于按键绘制）"""
         if not (self.mode_cn and self.engine.input):
             return
         x, y, w, h = self.rect
         rect = pygame.Rect(x + 10, y + h - 54, w - 20, 44)
         pygame.draw.rect(surface, COL_WHITE, rect, border_radius=10)
         pygame.draw.rect(surface, COL_KEY_BORDER, rect, 2, border_radius=10)
-        cx = rect.x + 12
-        raw_ts = self.f_label.render('拼音: ' + self.engine.input, True,
-                                     COL_TEXT_MUTED)
-        surface.blit(raw_ts, (cx, rect.y + (rect.h - raw_ts.get_height()) // 2))
-        cx += raw_ts.get_width() + 16
-        page = self.candidates[self._cand_offset:self._cand_offset + 6]
+
+    def _draw_compact_cand(self, surface):
+        """语音页/手机页底部的轻量候选条词区（按键之后绘制），
+        两端翻页键由 _build_keys 生成，词区可点击上屏"""
+        if not (self.mode_cn and self.engine.input):
+            self._compact_cand_rects = []
+            return
+        x, y, w, h = self.rect
+        rect = pygame.Rect(x + 10, y + h - 54, w - 20, 44)
+        # 词区避开两端翻页键（各 48+14 边距）；多页时再给页码留位
+        words_left = rect.x + 62
+        multi_page = len(self.candidates) > 9
+        words_right = rect.right - 62 - (56 if multi_page else 0)
+        page = self.candidates[self._cand_offset:self._cand_offset + 9]
+        self._compact_cand_rects = []
+        cx = words_left
         for i, word in enumerate(page):
             num = self.f_label.render('%d' % (i + 1), True, COL_TEXT_MUTED)
             ts = self.f_cand.render(word, True,
                                     COL_CAND_ACTIVE if i == 0 else COL_TEXT)
-            surface.blit(num, (cx, rect.y + (rect.h - num.get_height()) // 2 + 2))
-            cx += num.get_width() + 4
-            surface.blit(ts, (cx, rect.y + (rect.h - ts.get_height()) // 2))
-            cx += ts.get_width() + 14
-            if cx > rect.right - 60:
+            total = num.get_width() + 4 + ts.get_width()
+            if cx + total > words_right:
                 break
+            surface.blit(num, (cx, rect.y + (rect.h - num.get_height()) // 2 + 2))
+            surface.blit(ts, (cx + num.get_width() + 4,
+                              rect.y + (rect.h - ts.get_height()) // 2))
+            self._compact_cand_rects.append(
+                (self._cand_offset + i,
+                 pygame.Rect(int(cx), int(rect.y), int(total + 8), int(rect.h))))
+            cx += total + 16
+        # 页码提示（▶ 键左侧）
+        if multi_page:
+            total_pages = (len(self.candidates) + 8) // 9
+            cur_page = self._cand_offset // 9 + 1
+            ts = self.f_label.render('%d/%d' % (cur_page, total_pages), True,
+                                     COL_TEXT_MUTED)
+            surface.blit(ts, (rect.right - 62 - 8 - ts.get_width(),
+                              rect.y + (rect.h - ts.get_height()) // 2))
 
     def _draw_edit(self, surface, rect):
         """多行文本：按行高裁剪可见行数，超出只显示最近几行，不溢出边框"""
@@ -643,9 +697,8 @@ class PinyinInputPanel(object):
             if cx < rect.right - 10:
                 pygame.draw.rect(surface, COL_KEY_ACTIVE,
                                  (cx, cy + 2, 3, self.f_text.get_height() - 4))
-        # 当前拼音串（编辑区右下角小字提示）
-        if (self.page == 'kb' and self.mode_cn and not self._sym_mode
-                and self.engine.input):
+        # 当前拼音串（编辑区右下角小字提示，三页共用）
+        if (self.mode_cn and not self._sym_mode and self.engine.input):
             ts = self.f_label.render('拼音: ' + self.engine.input, True, COL_TEXT_MUTED)
             surface.blit(ts, (rect.right - ts.get_width() - 10, rect.y + 6))
 
@@ -663,7 +716,10 @@ class PinyinInputPanel(object):
             return
         if raw and not self.candidates:
             ts = self.f_cand.render(raw, True, COL_TEXT_MUTED)
-            surface.blit(ts, (rect.x + 16, rect.y + (rect.h - ts.get_height()) // 2))
+            # 从第一个词槽位置开始显示，避开左侧 ◀ 翻页键
+            start_x = self._cand_rects[0].x + 8 if self._cand_rects \
+                else rect.x + 16
+            surface.blit(ts, (start_x, rect.y + (rect.h - ts.get_height()) // 2))
         # 当前页 9 个候选（数字键序号按页内位置）
         page = self.candidates[self._cand_offset:self._cand_offset + 9]
         for i, word in enumerate(page):

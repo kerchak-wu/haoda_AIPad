@@ -9,6 +9,8 @@
   4. 人脸记录持久化到 JSON 文件，重启后自动加载
   5. 可选择删除已学习的人脸记录
   6. 提供 FaceLearner 类，可供其他程序导入调用
+  7. 点击姓名框弹出拼音输入面板（复用 pinyin_input/ 子目录组件：
+     软键盘/语音识别/手机辅助页），提交后填入姓名框
 
 硬件接线：
   - USB外接摄像头(/dev/video41 或 /dev/video40)
@@ -33,6 +35,7 @@
 """
 
 import os
+import sys
 import json
 import time
 import signal
@@ -48,6 +51,20 @@ import numpy as np
 
 from ESP32 import *
 from camera_vision_system_v3 import create_vision_system_v3
+
+# ===================== 拼音输入面板组件（复用 pinyin_input 子目录）=====================
+# pinyin_input 子目录相对主程序文件位置解析后加入模块搜索路径，直接导入组件；
+# 禁止把 pinyin_input 里的文件复制平铺到 user 根目录，也不改动子目录内任何文件
+_PI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pinyin_input')
+if os.path.isdir(_PI_DIR) and _PI_DIR not in sys.path:
+    sys.path.append(_PI_DIR)
+
+from input_panel import PinyinInputPanel, load_font
+from voice_input import VoiceInput
+from phone_bridge import PhoneBridge
+import voice_input as _voice_input
+# 语音录音临时文件统一放到 pinyin_input/recordings/，避免散落在 user 根目录
+_voice_input.RECORDINGS_DIR = os.path.join(_PI_DIR, 'recordings')
 
 
 # ===================== 日志输出（控制台 + 文件）=====================
@@ -445,6 +462,20 @@ def make_gradient_bg(width, height, top, bottom):
     return surf
 
 
+def make_qr_surface(url, box_size=4):
+    """生成二维码 pygame 表面；qrcode/PIL 不可用时返回 None（照搬拼音输入法.py）"""
+    try:
+        import qrcode
+        qr = qrcode.QRCode(box_size=box_size, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image().convert('RGB')
+        return pygame.image.frombuffer(img.tobytes(), img.size, 'RGB')
+    except Exception as e:
+        print('二维码生成失败（仅显示文字地址）: %s' % e)
+        return None
+
+
 def cvframe_to_surface(frame, target_w, target_h):
     """BGR 帧 -> pygame Surface，并缩放到指定尺寸
 
@@ -569,7 +600,7 @@ class TextInput:
                              (cursor_x, self.rect.bottom - 8), 2)
 
         if not self.text:
-            hint = self.font.render('请输入姓名...', True, SUBTLE_COLOR)
+            hint = self.font.render('点击弹出拼音面板输入姓名...', True, SUBTLE_COLOR)
             surf.blit(hint, (self.rect.x + 12, text_y))
 
 
@@ -653,6 +684,78 @@ class FaceLearnApp:
         # 列表项删除按钮 rect 列表（每帧更新，用于点击检测）
         self.face_delete_rects = []
 
+        # ===== 拼音输入面板（点击姓名框弹出，模态覆盖主区域）=====
+        self.panel_open = False
+        # 面板尺寸与独立程序 拼音输入法.py 完全一致（其窗口 1280x820）
+        panel_rect = pygame.Rect(60, 110, 1160, 666)
+        self.panel = PinyinInputPanel(panel_rect)
+
+        # ----- 语音输入（凭据从设备本地 credentials.py 读取；
+        # 同步文件夹内的代码一律留空，凭据只保存在设备副本中）-----
+        self.voice = VoiceInput()
+
+        def voice_press():
+            if not self.voice.is_available():
+                self.panel.voice_status = '语音不可用：请在 pinyin_input/credentials.py 配置凭据'
+                self.set_status('语音不可用：请先配置凭据', ERROR_COLOR)
+                return
+            try:
+                self.voice.start_record()
+                self.panel.voice_active = True
+                self.panel.voice_status = '录音中... 松开结束'
+                self.set_status('录音中... 松开结束', ACCENT_COLOR)
+            except Exception as e:
+                self.panel.voice_active = False
+                self.panel.voice_status = '录音启动失败: %s' % e
+                self.set_status('录音启动失败: %s' % e, ERROR_COLOR)
+
+        def voice_release():
+            self.panel.voice_active = False
+            if not self.voice.is_available():
+                return
+            self.panel.voice_status = '语音识别中...'
+            self.set_status('语音识别中...', ACCENT_COLOR)
+            # 识别在线程中处理，成功后 append_text 追加进编辑区
+            threading.Thread(target=self._voice_process, daemon=True).start()
+
+        # 语音按钮的按住/松开回调接到面板上（照搬拼音输入法.py）
+        self.panel.voice_press_cb = voice_press
+        self.panel.voice_release_cb = voice_release
+
+        if self.voice.is_available():
+            self.panel.voice_status = '语音已就绪'
+        else:
+            self.panel.voice_status = '语音未配置凭据'
+
+        # ----- 手机辅助页（随机端口）+ 二维码（照搬拼音输入法.py）-----
+        self.bridge = PhoneBridge()
+        self.bridge_ok = self.bridge.start()
+        if self.bridge_ok:
+            print('手机辅助页: %s' % self.bridge.url)
+            qr_big = make_qr_surface(self.bridge.url, box_size=8)
+            self.panel.set_phone_info(self.bridge.url, qr_big)
+            self.panel.phone_status = '等待手机扫码推送...'
+        else:
+            self.panel.phone_status = '服务启动失败（不影响键盘输入）'
+            print('手机辅助页启动失败（随机端口分配异常），不影响键盘输入')
+
+        # ----- 面板「提交」回调：take_text 取出全部文字（自动清空编辑区）-----
+        # 编辑区有字 → 填入姓名框并关闭面板；
+        # 编辑区为空 → 清空姓名框并关闭面板（方便重新录入）
+        def do_submit():
+            text = self.panel.take_text().replace('\n', '').replace('\r', '').strip()
+            if text:
+                self.name_input.text = text[:self.name_input.max_len]
+                self.set_status('姓名已填入：%s' % self.name_input.text, SUCCESS_COLOR)
+            else:
+                self.name_input.text = ''
+                self.set_status('姓名已清空，可重新输入', ACCENT_COLOR)
+            self.name_input.active = False
+            self.panel_open = False
+            print('面板提交后姓名框: %r' % self.name_input.text)
+
+        self.panel.on_submit_cb = do_submit
+
         # 启动摄像头采集线程（后台线程，避免阻塞主循环）
         threading.Thread(target=self.camera_capture_loop, daemon=True).start()
 
@@ -691,6 +794,31 @@ class FaceLearnApp:
     def set_status(self, msg, color=SUBTLE_COLOR):
         self.status_msg = msg
         self.status_color = color
+
+    def _voice_process(self):
+        """语音识别子线程：成功后把结果追加进面板编辑区（与独立程序一致）"""
+        text = self.voice.stop_and_recognize()
+        if text:
+            self.panel.append_text(text)
+            self.panel.voice_status = '识别结果: %s' % text
+            self.set_status('语音: %s' % text, SUCCESS_COLOR)
+        else:
+            self.panel.voice_status = '语音识别失败或未说话'
+            self.set_status('语音识别失败或未说话', ERROR_COLOR)
+
+    def open_panel(self):
+        """点击姓名框：弹出拼音输入面板（模态覆盖主区域）
+
+        姓名框已有文字时先回填到面板编辑区，便于在原基础上修改；
+        关闭时若未提交则姓名框保持不变。
+        """
+        self.name_input.active = False
+        self.panel.set_text(self.name_input.text)
+        self.panel_open = True
+
+    def close_panel(self):
+        """关闭面板不保存（面板编辑区内容保留，下次打开可继续）"""
+        self.panel_open = False
 
     def handle_learn(self):
         """处理学习人脸按钮点击"""
@@ -862,7 +990,7 @@ class FaceLearnApp:
         self.screen.blit(mask, (0, HEIGHT - self.FOOTER_H))
 
         hint = self.font_small.render(
-            'ESC 退出  ·  输入姓名后回车或点击「学习人脸」',
+            '点击姓名框弹出拼音输入面板 · ESC 关闭面板/退出程序 · 回车或点击「学习人脸」',
             True, SUBTLE_COLOR)
         self.screen.blit(hint, (60, HEIGHT - 45))
 
@@ -874,6 +1002,16 @@ class FaceLearnApp:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                elif self.panel_open:
+                    # 模态：面板优先消费事件，返回 True 时主程序不得再处理
+                    # （防止点击穿透到下层按钮）
+                    if self.panel.handle_event(event):
+                        continue
+                    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                        self.close_panel()          # ESC 关闭不保存
+                    elif (event.type == pygame.MOUSEBUTTONDOWN
+                          and not self.panel.rect.collidepoint(event.pos)):
+                        self.close_panel()          # 点面板外关闭不保存
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if self.btn_exit.clicked(event.pos):
                         self.running = False
@@ -887,27 +1025,37 @@ class FaceLearnApp:
                                 self.handle_delete_face(face_index)
                                 del_clicked = True
                                 break
-                        if not del_clicked:
-                            self.name_input.set_active(event.pos)
+                        if not del_clicked and self.name_input.rect.collidepoint(event.pos):
+                            self.open_panel()       # 点击姓名框弹出拼音输入面板
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
-                    elif self.name_input.active:
-                        if event.key == pygame.K_RETURN:
-                            self.handle_learn()
-                        else:
-                            self.name_input.handle_key(event)
                     elif event.key == pygame.K_RETURN:
-                        self.name_input.active = True
+                        self.handle_learn()
 
             self.btn_learn.update(mouse_pos)
             self.btn_exit.update(mouse_pos)
+
+            # 手机推送轮询（面板打开时取走推送内容，覆盖进面板编辑区）
+            if self.panel_open and self.bridge_ok:
+                phone_text = self.bridge.get_text()
+                if phone_text:
+                    self.panel.set_text(phone_text)
+                    self.panel.phone_status = '已同步手机内容'
+                self.bridge.set_current_text(self.panel.text)
 
             self.screen.blit(self.bg, (0, 0))
             self.draw_title()
             self.draw_camera()
             self.draw_info_panel()
             self.draw_footer(mouse_pos)
+
+            if self.panel_open:
+                # 模态：浅色遮罩 + 输入面板（保持浅色风格）
+                dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                dim.fill((255, 255, 255, 130))
+                self.screen.blit(dim, (0, 0))
+                self.panel.draw(self.screen)
 
             pygame.display.flip()
             self.clock.tick(30)
@@ -916,6 +1064,14 @@ class FaceLearnApp:
         print('正在关闭程序...')
         self.cam_thread_running = False
         time.sleep(0.2)
+        try:
+            self.bridge.stop()
+        except Exception:
+            pass
+        try:
+            self.panel.engine.save_user_freq()
+        except Exception:
+            pass
         try:
             if self.cap is not None:
                 self.cap.release()

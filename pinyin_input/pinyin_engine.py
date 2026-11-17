@@ -102,6 +102,8 @@ class PinyinIME(object):
         self._committed = ''   # 已上屏文本
         self._cand_cache_key = None
         self._cand_cache = []
+        self._last_cand_keys = None      # 最近一次查询候选时的拼音串
+        self._last_cand_list = []        # 最近一次查询返回的候选列表（choose 用它保证所见即所得）
 
     # ---------- 数据加载 ----------
 
@@ -191,8 +193,13 @@ class PinyinIME(object):
         return self._committed
 
     def choose(self, i):
-        """选中第 i 个候选（0 起），加入上屏文本并自学习；返回选中词或 None"""
-        cands = self.candidates()
+        """选中第 i 个候选（0 起），加入上屏文本并自学习；返回选中词或 None。
+        优先使用最近一次 candidates() 查询的完整列表（含面板翻页后的词），
+        拼音串已变化时按默认 10 条重新查询"""
+        if self._last_cand_keys == self._keys and self._last_cand_list:
+            cands = self._last_cand_list
+        else:
+            cands = self.candidates()
         if i < 0 or i >= len(cands):
             return None
         word = cands[i]
@@ -339,6 +346,8 @@ class PinyinIME(object):
         result = [w for w, _s in ranked[:limit]]
         self._cand_cache_key = (self._keys, limit)
         self._cand_cache = result
+        self._last_cand_keys = self._keys
+        self._last_cand_list = result
         return result
 
     def _collect_prefix(self, prefix, scored, factor=1.0, max_words=40):

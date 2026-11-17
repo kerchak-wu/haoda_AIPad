@@ -760,7 +760,7 @@ while True:
 
 | 误区 | 正确认知 |
 |------|---------|
-| 「物体学习必须走全托管模式，不接受外部帧」 | **错误**。`add_object_recognition_class(frame=None, class_name=None)` 和 `add_object_recognition_sample(frame=None, class_name=None)` 都支持外部传帧：`frame=None` 时从摄像头取，传 `frame=ndarray` 时从外部帧取。模式选择应由**是否需要持续后台检测**决定，而非算法本身。 |
+| 「物体学习必须走全托管模式，不接受外部帧」 | **错误**。`add_object_recognition_class(frame=None, class_name=None)` 和 `add_object_recognition_sample(frame=None, class_name=None)` 都支持外部传帧：`frame=None` 时从摄像头取，传 `frame=ndarray` 时从外部帧取。模式选择应由**是否需要持续后台检测**决定，而非算法本身。【2026-11-17 真机复核】外部传帧路径实机测试通过（不 `open_camera`、不启动后台检测，`frame=ndarray` 创建类别/追加样本均 `success: True`）；物体学习.py v1.8 已据此重构为混合模式（cv2 直读 + 外部传帧），画面帧率不再被后台识别推理封顶。 |
 | 「人脸学习必须走混合模式」 | **错误**。`learn_new_face(frame=None)` 同样支持两种模式：`frame=None` 内部取帧，`frame=ndarray` 外部传帧。 |
 | 「表情识别只能用百度云 API」 | **不准确**。V3 库自带本地 RKNN 表情识别能力（`enable_facial_expression=True` + `FacialExpressionRecognizer`），走 Rockchip NPU 加速，离线可用。仅在需要云端属性分析（年龄、性别）时才必须用百度云。 |
 

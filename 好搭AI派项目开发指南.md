@@ -99,6 +99,7 @@
 | 路径 | 用途 |
 |---|---|
 | `/home/cxdz/jupyter/user/` | **用户程序目录**（程序管理器扫描的就是这里，工作目录） |
+| `/home/cxdz/jupyter/user/pinyin_input/` | 拼音输入面板组件子文件夹（可嵌入任意 pygame 程序；嵌入标准做法见 project_memory 口径决议 34，实测案例 人脸学习.py、物体学习.py） |
 | `/home/cxdz/jupyter/lib/` | 厂商闭源 `.so` 驱动库（PYTHONPATH 指向这里） |
 | `/home/cxdz/jupyter/model/` | `.rknn` AI 模型 |
 | `/home/cxdz/jupyter/assets/` | 中文字体等资源（**字体用绝对路径引用**） |
@@ -128,6 +129,7 @@
 | `object_database/` | V3 物体特征库 + `object_records.json`（名称/样本数/时间戳） |
 | `logs/` | 所有程序日志（追加模式） |
 | `recordings/` | TTS 语音 WAV 缓存（按文字哈希命名，重复播报不重复合成） |
+| `pinyin_input/recordings/` | 语音输入录音临时文件（独立拼音输入法程序 + 嵌入面板的宿主程序均落此子文件夹，不污染 user 根目录） |
 
 > **注意：`object_data/` 是历史遗留**（`object_db.json` 内容 `{"objects":{}}`，无人引用）。**新项目绝对不要写这个目录**。
 > **注意：**`好搭AI派基本情况.md` 的"使用要点"仍写"物体库 `object_data/`"，属错误，忽略。
@@ -258,7 +260,7 @@ print('=' * 60)
 | `cv2.VideoCapture` | 必须 | 必须 | **绝对禁用** |
 | 取画面 | 自己的线程 | 自己的线程 | `vs.capture_frame()`（+ `time.sleep(0.15)`） |
 | 帧率 | 30 fps | 30 fps | 6~7 fps（视算法组合） |
-| 典型项目 | 手势控制RGB灯带、人体姿态识别器、人脸表情识别（云）、文字识别播报器 | 人脸学习、物体学习（传帧） | 人脸识别灯效、物体学习（内部取帧） |
+| 典型项目 | 手势控制RGB灯带、人体姿态识别器、人脸表情识别（云）、文字识别播报器 | 人脸学习、物体学习【2026-11-17 v1.8 起改为传帧模式，真机验证通过】 | 人脸识别灯效（物体学习旧版曾用此模式，已废弃） |
 
 ### 5.3 摄像头打开规则（A/B 模式通用，**必须遵守**）
 
