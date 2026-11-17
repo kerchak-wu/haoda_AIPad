@@ -94,6 +94,10 @@
 | 27 | text_recognition | 仅 `recognize_text`；无 `set_language`/`set_region`/`angle_classify` | A1 基线 + 日志 K 节 | 2026-10-09 | 日志 K 节反射 |
 | 28 | `remove_callback` | 可用签名 `remove_callback("detection", cb)` | A0 实测 | 2026-10-09 | 日志 F 节 `remove_callback_sig` |
 | 29 | pygame 版本 | 运行时 **pygame-ce 2.5.2**（`pip list` 另见 `pygame 2.6.1`，但实际 import 为 pygame-ce 2.5.2） | A0 实测 | 2026-10-09 | `pygame.version.ver` + 启动 banner |
+| 30 | `qrcode` 生成库 | **已安装且可用**（纯 Python，不影响 cv2/pygame 红线）；无 `__version__` 属性属正常，以生成矩阵成功为准 | A0 实测 | 2026-11-17 | 拼音输入应用设备实测：`QRCode().make()` 成功（25×25 矩阵） |
+| 31 | 拼音输入应用部署形态 | 位于 `user/pinyin_input/`（**英文子文件夹**）；程序启动自动 `chdir` 自目录，`data/ logs/ recordings/` 均落子文件夹内，不污染 user 根目录；其他程序调用先 `sys.path.append('/home/cxdz/jupyter/user/pinyin_input')` | A0 用户裁决 + A0 实测 | 2026-11-17 | 设备实测从 user 根目录启动，资源定位正确 |
+| 32 | 拼音离线词典 | `pinyin_input/data/pinyin_dict.json`（9.4MB，26 万音节键）；Python 3.8 设备加载 **1.75s**，单次候选查询 ≤2.5ms；重建用 `构建拼音词典.py`（数据源下载地址在其头部注释） | A0 实测 | 2026-11-17 | 设备端 `/tmp/device_test.py` 输出 |
+| 33 | 手机辅助页端口 | **每次启动系统随机分配**（`ThreadingHTTPServer(('0.0.0.0',0))` + `server_port` 回填），无固定端口选项（局域网多设备不串）；`self.url` 在 `start()` 成功后才有值 | A0 用户裁决 + A0 实测 | 2026-11-17 | 双实例实测 33081/35599 不同端口，HTTP 推送往返成功 |
 
 ## 待实测登记（需实物 / 需人眼；未来项目实测后回填）
 
