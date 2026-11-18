@@ -687,8 +687,10 @@ class FaceLearnApp:
         # ===== 拼音输入面板（点击姓名框弹出，模态覆盖主区域）=====
         self.panel_open = False
         # 面板尺寸与独立程序 拼音输入法.py 完全一致（其窗口 1280x820）
-        panel_rect = pygame.Rect(60, 110, 1160, 666)
-        self.panel = PinyinInputPanel(panel_rect)
+        # english_only=True：姓名只允许字母/数字/半角符号，禁止中文
+        # 位置：左右居中、底边贴窗口底边（弹窗式）
+        panel_rect = pygame.Rect((WIDTH - 1160) // 2, HEIGHT - 666, 1160, 666)
+        self.panel = PinyinInputPanel(panel_rect, english_only=True)
 
         # ----- 语音输入（凭据从设备本地 credentials.py 读取；
         # 同步文件夹内的代码一律留空，凭据只保存在设备副本中）-----

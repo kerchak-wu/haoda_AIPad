@@ -99,7 +99,7 @@
 | 路径 | 用途 |
 |---|---|
 | `/home/cxdz/jupyter/user/` | **用户程序目录**（程序管理器扫描的就是这里，工作目录） |
-| `/home/cxdz/jupyter/user/pinyin_input/` | 拼音输入面板组件子文件夹（可嵌入任意 pygame 程序；嵌入标准做法见 project_memory 口径决议 34，实测案例 人脸学习.py、物体学习.py） |
+| `/home/cxdz/jupyter/user/pinyin_input/` | 拼音输入面板组件子文件夹（可嵌入任意 pygame 程序；嵌入标准做法见 project_memory 口径决议 34，英文锁定模式见口径决议 37，实测案例 人脸学习.py、物体学习.py） |
 | `/home/cxdz/jupyter/lib/` | 厂商闭源 `.so` 驱动库（PYTHONPATH 指向这里） |
 | `/home/cxdz/jupyter/model/` | `.rknn` AI 模型 |
 | `/home/cxdz/jupyter/assets/` | 中文字体等资源（**字体用绝对路径引用**） |

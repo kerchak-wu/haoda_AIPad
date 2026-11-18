@@ -5,6 +5,8 @@ input_panel - 好搭AI派 可嵌入 pygame 拼音输入面板组件（三页结�
   点面板顶部标签或按 F1/F2/F3 切换；编辑区三页共用。
 功能：
   - 中文（离线拼音引擎）/ 英文直输 / 符号面板（自动跟随中英文模式，可「更多」互换）
+  - english_only=True 时锁定英文模式：仅字母/数字/半角符号，隐藏语音/手机页，
+    禁止切回中文，追加/设置/提交文本均过滤为 ASCII（适合姓名输入等场景）
   - 编辑区多行显示（自动按行高裁剪可见行数，不溢出边框）
   - 三个页面均可使用外接 USB 键盘输入；语音/手机页打拼音时底部出现轻量候选条
   - 语音页：方形「按住说话」大按钮；键盘页功能行仅 空格/回车/清空
@@ -119,7 +121,7 @@ class PinyinInputPanel(object):
 
     def __init__(self, rect, font_path=None, fonts=None, engine=None,
                  on_commit=None, voice_press=None, voice_release=None,
-                 soft_keyboard=True, max_lines=8):
+                 soft_keyboard=True, max_lines=8, english_only=False):
         self.rect = pygame.Rect(rect)
         self.font_path = font_path
         self.on_commit = on_commit
@@ -127,6 +129,7 @@ class PinyinInputPanel(object):
         self.voice_release_cb = voice_release
         self.soft_keyboard = soft_keyboard
         self.max_lines = max_lines
+        self.english_only = bool(english_only)  # 锁定英文：仅字母/数字/半角符号
         # 字体
         if fonts:
             self.f_text = fonts.get('text') or load_font(28, font_path=font_path)
@@ -142,7 +145,7 @@ class PinyinInputPanel(object):
         self.engine = engine if engine is not None else PinyinIME()
         # 状态
         self.page = 'kb'               # 'kb' / 'voice' / 'phone'
-        self.mode_cn = True            # True 中文 / False 英文（字母输入模式）
+        self.mode_cn = not self.english_only  # True 中文 / False 英文（字母输入模式）
         self._sym_mode = False         # True 符号面板（键盘页内）
         self._sym_page = 0             # 0 中文全角 / 1 英文半角（进面板时自动跟随 mode_cn）
         self._text_lines = ['']        # 编辑区文本（多行）
@@ -168,11 +171,16 @@ class PinyinInputPanel(object):
     def take_text(self):
         """提交：返回当前编辑区全部文本并清空（供宿主程序提交输入内容）"""
         text = self.text
+        if self.english_only:
+            text = self._filter_ascii(text)
         self.clear_text()
         return text
 
     def set_text(self, text):
         """整体替换编辑区内容"""
+        if self.english_only and text:
+            text = '\n'.join(self._filter_ascii(ln)
+                             for ln in text.split('\n'))
         self._text_lines = text.split('\n') if text else ['']
         self._trim_lines()
 
@@ -180,8 +188,17 @@ class PinyinInputPanel(object):
         """追加文本到编辑区末尾"""
         if not text:
             return
+        if self.english_only:
+            text = self._filter_ascii(text)
+            if not text:
+                return
         self._text_lines[-1] += text
         self._trim_lines()
+
+    @staticmethod
+    def _filter_ascii(text):
+        """英文锁定模式：仅保留可打印 ASCII 字符（过滤汉字/全角符号等）"""
+        return ''.join(ch for ch in text if 32 <= ord(ch) < 127)
 
     def clear_text(self):
         self._text_lines = ['']
@@ -194,6 +211,8 @@ class PinyinInputPanel(object):
 
     def toggle_mode(self):
         """中/英切换；切换时清空拼音输入，符号页自动跟随"""
+        if self.english_only:
+            return  # 锁定英文模式，禁止切回中文
         self.mode_cn = not self.mode_cn
         self.engine.reset_input()
         self.candidates = []
@@ -205,6 +224,8 @@ class PinyinInputPanel(object):
         self._sym_mode = bool(show)
         if show:
             self._sym_page = 0 if self.mode_cn else 1
+            if self.english_only:
+                self._sym_page = 1  # 锁定英文：固定半角符号页
         self.engine.reset_input()
         self.candidates = []
 
@@ -378,7 +399,8 @@ class PinyinInputPanel(object):
         elif code == 'sym_letter':
             self.show_symbols(False)
         elif code == 'sym_more':
-            self._sym_page = (self._sym_page + 1) % len(SYM_PAGES)
+            if not self.english_only:
+                self._sym_page = (self._sym_page + 1) % len(SYM_PAGES)
         elif code == 'backspace':
             self._edit_backspace()
         elif code == 'space':
@@ -451,10 +473,13 @@ class PinyinInputPanel(object):
         if not self.soft_keyboard:
             return
         gap = 8
-        # ----- 页面标签行（三页共用）-----
+        # ----- 页面标签行（三页共用；英文锁定时仅保留键盘页）-----
         tab_y = y + pad + edit_h + 4
+        tabs = _TABS if not self.english_only else [('kb', '键盘')]
         tw = (w - 2 * pad - 2 * 8) / 3.0
-        for i, (pid, label) in enumerate(_TABS):
+        if self.english_only:
+            tw = w - 2 * pad
+        for i, (pid, label) in enumerate(tabs):
             rect = pygame.Rect(int(x + pad + i * (tw + 8)), tab_y,
                                int(tw), tab_h)
             self.keys.append(_Key('tab_%s' % pid, label, rect))
@@ -520,7 +545,9 @@ class PinyinInputPanel(object):
                 else:
                     names = [('sym_letter', '字母'), ('sym_more', '更多'),
                              ('backspace', '退格')]
-                    cw = (w - 2 * pad - gap * 2) / 3.0
+                    if self.english_only:
+                        names = [('sym_letter', '字母'), ('backspace', '退格')]
+                    cw = (w - 2 * pad - gap * (len(names) - 1)) / float(len(names))
                     for c, (code, label) in enumerate(names):
                         rect = pygame.Rect(int(x + pad + c * (cw + gap)),
                                            int(row_yk), int(cw), int(key_h))
@@ -528,7 +555,8 @@ class PinyinInputPanel(object):
             build_function_row()
         else:
             rows = (_ROW1, _ROW2, _ROW3)
-            labels3 = {'shift': '中/EN', 'return': '回车'}
+            labels3 = ({'shift': 'EN', 'return': '回车'} if self.english_only
+                       else {'shift': '中/EN', 'return': '回车'})
             for r, row in enumerate(rows):
                 n = len(row)
                 key_w = (w - 2 * pad - gap * (n - 1)) / float(n)
@@ -551,8 +579,10 @@ class PinyinInputPanel(object):
         prev_rect = pygame.Rect(int(x + pad), int(by), page_btn_w, btn_h)
         next_rect = pygame.Rect(int(x + w - pad - page_btn_w), int(by),
                                 page_btn_w, btn_h)
-        self.keys.append(_Key('cand_prev', '◀', prev_rect))
-        self.keys.append(_Key('cand_next', '▶', next_rect))
+        # 英文锁定模式无候选，不生成 ◀/▶ 翻页键（词槽矩形保留仅作布局占位）
+        if not self.english_only:
+            self.keys.append(_Key('cand_prev', '◀', prev_rect))
+            self.keys.append(_Key('cand_next', '▶', next_rect))
         # 页码指示预留带（▶ 左侧 74px），词槽避开
         words_left = x + pad + page_btn_w + gap
         words_right = next_rect.x - gap - 74
@@ -875,7 +905,7 @@ class PinyinInputPanel(object):
             pygame.draw.polygon(surface, tri_color, pts)
             return
         active = pressed or (code == 'shift' and not self.mode_cn
-                             and not self._sym_mode)
+                             and not self._sym_mode and not self.english_only)
         body = COL_KEY_ACTIVE if active else COL_KEY
         border = COL_KEY_ACTIVE if active else COL_KEY_BORDER
         self._draw_btn_3d(surface, rect, body, border, pressed)
